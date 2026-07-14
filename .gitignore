@@ -33,6 +33,8 @@ data/images/
 data/labels/
 data/siniflar.txt
 hasar-ornek/augmented/
+hasar-ornek-labelli/*
+!hasar-ornek-labelli/.gitkeep
 hasar-sonucu/
 *.pt
 *.onnx
@@ -83,3 +85,6 @@ test_artirim/
 
 .claude/
 .gemini/
+YoloForCarDefect-1/
+_cardd_extracted/
+_cardd_dataset.zip

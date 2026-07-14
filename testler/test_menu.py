@@ -23,9 +23,13 @@ class MenuAralikTesti(unittest.TestCase):
     @patch("main.testleri_calistir")
     @patch("main.model_secimi_calistir")
     @patch("main.ayarlar_calistir")
+    @patch("main.gorsel_toplama_calistir")
+    @patch("main.kalite_kontrol_calistir")
+    @patch("main.etiket_dogrulama_calistir")
+    @patch("main.model_bilgisi_calistir")
     @patch("main.cikis_yap")
     def test_menu_araligi_0_10(
-        self, m0, m10, m9, m8, m7, m6, m5, m4, m3, m2, m1,
+        self, m0, m14, m13, m12, m11, m10, m9, m8, m7, m6, m5, m4, m3, m2, m1,
     ):
         self.assertTrue(main.menu_secimi_isle("1"))
         m1.assert_called_once()
@@ -47,6 +51,14 @@ class MenuAralikTesti(unittest.TestCase):
         m9.assert_called_once()
         self.assertTrue(main.menu_secimi_isle("10"))
         m10.assert_called_once()
+        self.assertTrue(main.menu_secimi_isle("11"))
+        m11.assert_called_once()
+        self.assertTrue(main.menu_secimi_isle("12"))
+        m12.assert_called_once()
+        self.assertTrue(main.menu_secimi_isle("13"))
+        m13.assert_called_once()
+        self.assertTrue(main.menu_secimi_isle("14"))
+        m14.assert_called_once()
 
     @patch("main.cikis_yap")
     def test_menu_cikis_false_doner(self, mock_cikis):
@@ -58,7 +70,7 @@ class MenuAralikTesti(unittest.TestCase):
         main.menu_secimi_isle("99")
         cikti = mock_stdout.getvalue()
         self.assertIn("Gecersiz secim", cikti)
-        self.assertIn("0-13", cikti)
+        self.assertIn("0-14", cikti)
 
 
 class ModelSecimiTesti(unittest.TestCase):

@@ -279,6 +279,32 @@ def tum_gpu_bilgisi_al():
     return tumu
 
 
+def directml_bilgisi_al():
+    """DirectML (Intel Arc / AMD / NVIDIA GPU) kullanilabilir mi?
+    DirectML, DirectX 12 uzerinden GPU hizlandirmasi saglar.
+    Intel Arc GPU'larda XPU'nun calismadigi durumlarda en iyi alternatiftir.
+    """
+    try:
+        import torch_directml
+        sayac = torch_directml.device_count()
+        cihazlar = []
+        for i in range(sayac):
+            try:
+                ad = torch_directml.device_name(i)
+            except Exception:
+                ad = f"DirectML GPU {i}"
+            cihazlar.append({"ad": ad})
+        return {
+            "durum": True,
+            "sayac": sayac,
+            "cihazlar": cihazlar,
+        }
+    except ImportError:
+        return {"durum": False, "sayac": 0, "cihazlar": []}
+    except Exception:
+        return {"durum": False, "sayac": 0, "cihazlar": []}
+
+
 def egitim_yapabilir_gpu_var_mi(profil):
     """CUDA veya Intel Arc gibi eğitim yapabilecek GPU var mı kontrol eder."""
     cuda = profil.get("cuda", {})
@@ -313,6 +339,7 @@ def donanim_profili_olustur():
     intel_arc = intel_arc_gpu_bilgisi_al()
     npu = npu_bilgisi_al()
     tum_gpu = tum_gpu_bilgisi_al()
+    dml = directml_bilgisi_al()
 
     if cuda["durum"] and cuda["sayac"] > 0:
         hedef_cihaz = "cuda"
@@ -322,10 +349,15 @@ def donanim_profili_olustur():
         hedef_cihaz = "cuda"
         onerilen_batch = 16
         cihaz_aciklamasi = "NVIDIA GPU (nvidia-smi)"
+    elif dml["durum"] and dml["sayac"] > 0:
+        dml_adi = dml["cihazlar"][0]["ad"] if dml["cihazlar"] else "DirectML GPU"
+        hedef_cihaz = "directml"
+        onerilen_batch = 16
+        cihaz_aciklamasi = f"DirectML GPU - {dml_adi} (Intel Arc / AMD / NVIDIA)"
     elif intel_arc:
         hedef_cihaz = "cpu"
         onerilen_batch = 8
-        cihaz_aciklamasi = "Intel Arc GPU (OpenVINO / XPU onerilir)"
+        cihaz_aciklamasi = "Intel Arc GPU (DirectML yuklu degil - 'pip install torch_directml' ile kurun)"
     elif amd and any("radeon" in g.get("ad", "").lower() and g.get("vram_mb", 0) >= 2048 for g in amd):
         hedef_cihaz = "cpu"
         onerilen_batch = 8
@@ -345,6 +377,7 @@ def donanim_profili_olustur():
         "intel_arc_gpu": intel_arc,
         "npu": npu,
         "tum_gpu": tum_gpu,
+        "directml": dml,
         "hedef_cihaz": hedef_cihaz,
         "onerilen_batch": onerilen_batch,
         "cihaz_aciklamasi": cihaz_aciklamasi,
@@ -403,6 +436,14 @@ def donanim_ozeti_yazdir():
             print(f"    {Fore.WHITE}VRAM           : {cihaz['vram_gb']:.2f} GB{Style.RESET_ALL}")
         print()
 
+    dml = profil.get("directml", {})
+    if dml.get("durum"):
+        print(f"{Fore.GREEN}[+] DirectML Destegi: Aktif ({dml['sayac']} cihaz){Style.RESET_ALL}")
+        for i, cihaz in enumerate(dml["cihazlar"]):
+            print(f"    {Fore.WHITE}GPU {i}          : {cihaz['ad']}{Style.RESET_ALL}")
+        print(f"    {Fore.CYAN}DirectML, DirectX 12 uzerinden Intel/AMD/NVIDIA GPU hizlandirmasi saglar.{Style.RESET_ALL}")
+        print()
+
     npu = profil.get("npu", [])
     if npu:
         print(f"{Fore.MAGENTA}[*] NPU (Yapay Zeka Islemsici) - {len(npu)} adet{Style.RESET_ALL}")
@@ -424,19 +465,30 @@ def donanim_ozeti_yazdir():
     return profil
 
 
-def cihaz_secimi_yap(profil=None):
-    """Donanım analizinden sonra kullanıcıya eğitim cihazı seçtirir.
+def cihaz_secimi_yap(profil=None, mod="egitim"):
+    """Donanım analizinden sonra kullanıcıya cihaz seçtirir.
+
+    Args:
+        profil: donanim_profili_olustur() çıktısı
+        mod: "egitim" (NPU yasak) veya "cikarim" (NPU serbest)
 
     Returns:
-        dict: {"cihaz": "cuda"|"cpu"|"xpu", "batch": int, "aciklama": str}
+        dict: {"cihaz": "cuda"|"cpu"|"npu", "batch": int, "aciklama": str}
     """
     if profil is None:
         profil = donanim_profili_olustur()
 
+    npu_var = len(profil.get("npu", [])) > 0
+
     print()
-    print(f"{Fore.YELLOW}  [EGITIM CIHAZI SECIMI]{Style.RESET_ALL}")
-    print()
-    print(f"{Fore.CYAN}  Sisteminizde asagidaki islemciler kullanilabilir:{Style.RESET_ALL}")
+    if mod == "cikarim":
+        print(f"{Fore.YELLOW}  [CIKARIM CIHAZI SECIMI]{Style.RESET_ALL}")
+        print()
+        print(f"{Fore.CYAN}  Cikarim icin kullanilabilir islemciler:{Style.RESET_ALL}")
+    else:
+        print(f"{Fore.YELLOW}  [EGITIM CIHAZI SECIMI]{Style.RESET_ALL}")
+        print()
+        print(f"{Fore.CYAN}  Egitim icin kullanilabilir islemciler:{Style.RESET_ALL}")
     print()
 
     secenekler = []
@@ -454,9 +506,7 @@ def cihaz_secimi_yap(profil=None):
             print(f"      {Fore.CYAN}En hizli secenek - CUDA hizlandirmasi tam destek{Style.RESET_ALL}")
             print()
             secenekler.append({
-                "no": secenek_no,
-                "cihaz": "cuda",
-                "batch": 16,
+                "no": secenek_no, "cihaz": "cuda", "batch": 16,
                 "aciklama": f"NVIDIA CUDA - {cihaz['ad']}",
             })
             secenek_no += 1
@@ -468,24 +518,45 @@ def cihaz_secimi_yap(profil=None):
             print(f"      {Fore.YELLOW}CUDA destegi PyTorch kurulumunuza bagli{Style.RESET_ALL}")
             print()
             secenekler.append({
-                "no": secenek_no,
-                "cihaz": "cuda",
-                "batch": 16,
+                "no": secenek_no, "cihaz": "cuda", "batch": 16,
                 "aciklama": f"NVIDIA GPU - {gpu['ad']}",
+            })
+            secenek_no += 1
+
+    dml = profil.get("directml", {})
+    if dml.get("durum") and dml.get("sayac", 0) > 0:
+        for i, cihaz in enumerate(dml["cihazlar"]):
+            if mod == "cikarim":
+                print(f"  {Fore.WHITE}[{secenek_no}] {Fore.CYAN}DirectML GPU (Onerilen - Cikarim){Style.RESET_ALL}")
+                print(f"      {cihaz['ad']}")
+                print(f"      {Fore.GREEN}DirectX 12 GPU cikarim hizlandirmasi - En hizli secenek{Style.RESET_ALL}")
+            else:
+                print(f"  {Fore.WHITE}[{secenek_no}] {Fore.CYAN}DirectML GPU{Style.RESET_ALL}")
+                print(f"      {cihaz['ad']}")
+                print(f"      {Fore.YELLOW}Not: DirectML su an yalnizca cikarim (inference) icindir.{Style.RESET_ALL}")
+                print(f"      {Fore.YELLOW}Egitim CPU'da calisacak. En hizli egitim icin Google Colab [son secenek] onerilir.{Style.RESET_ALL}")
+            print()
+            secenekler.append({
+                "no": secenek_no, "cihaz": "directml", "batch": 16,
+                "aciklama": f"DirectML GPU - {cihaz['ad']} (Cikarim GPU, Egitim CPU)",
             })
             secenek_no += 1
 
     for gpu in intel_arc:
         vram_str = f"{gpu['vram_mb']} MB" if gpu['vram_mb'] < 1024 else f"{gpu['vram_mb'] / 1024:.1f} GB"
-        print(f"  {Fore.WHITE}[{secenek_no}] {Fore.BLUE}Intel Arc GPU{Style.RESET_ALL}")
-        print(f"      {gpu['ad']} ({vram_str} VRAM)")
-        print(f"      {Fore.CYAN}OpenVINO / Intel XPU ile egitim yapilabilir{Style.RESET_ALL}")
+        gpu_adi = gpu['ad']
+        if mod == "cikarim":
+            print(f"  {Fore.WHITE}[{secenek_no}] {Fore.BLUE}Intel Arc GPU (XPU){Style.RESET_ALL}")
+            print(f"      {gpu_adi} ({vram_str} VRAM)")
+            print(f"      {Fore.YELLOW}XPU calismiyorsa DirectML secenegini kullanin{Style.RESET_ALL}")
+        else:
+            print(f"  {Fore.WHITE}[{secenek_no}] {Fore.BLUE}Intel Arc GPU (XPU){Style.RESET_ALL}")
+            print(f"      {gpu_adi} ({vram_str} VRAM)")
+            print(f"      {Fore.YELLOW}XPU calismiyorsa DirectML secenegini kullanin{Style.RESET_ALL}")
         print()
         secenekler.append({
-            "no": secenek_no,
-            "cihaz": "cpu",
-            "batch": 8,
-            "aciklama": f"Intel Arc GPU - {gpu['ad']}",
+            "no": secenek_no, "cihaz": "cpu", "batch": 8,
+            "aciklama": f"Intel Arc GPU - {gpu_adi}",
         })
         secenek_no += 1
 
@@ -495,12 +566,10 @@ def cihaz_secimi_yap(profil=None):
             vram_str = f"{vram_mb} MB" if vram_mb < 1024 else f"{vram_mb / 1024:.1f} GB"
             print(f"  {Fore.WHITE}[{secenek_no}] {Fore.RED}AMD Radeon GPU{Style.RESET_ALL}")
             print(f"      {gpu['ad']} ({vram_str} VRAM)")
-            print(f"      {Fore.CYAN}DirectML / ROCm ile egitim yapilabilir{Style.RESET_ALL}")
+            print(f"      {Fore.CYAN}DirectML / ROCm ile {'cikarim' if mod == 'cikarim' else 'egitim'} yapilabilir{Style.RESET_ALL}")
             print()
             secenekler.append({
-                "no": secenek_no,
-                "cihaz": "cpu",
-                "batch": 8,
+                "no": secenek_no, "cihaz": "cpu", "batch": 8,
                 "aciklama": f"AMD Radeon GPU - {gpu['ad']}",
             })
             secenek_no += 1
@@ -511,23 +580,58 @@ def cihaz_secimi_yap(profil=None):
     print(f"      {Fore.CYAN}Her zaman calisir, en uyumlu secenek{Style.RESET_ALL}")
     print()
     secenekler.append({
-        "no": secenek_no,
-        "cihaz": "cpu",
-        "batch": 4,
+        "no": secenek_no, "cihaz": "cpu", "batch": 4,
         "aciklama": f"CPU - {cpu.get('ad', 'Bilinmeyen')}",
     })
+    secenek_no += 1
 
     npu = profil.get("npu", [])
-    if npu:
+    if mod == "cikarim" and npu:
+        for n in npu:
+            if "intel" in n.get("tur", "").lower():
+                npu_format = "OpenVINO (.xml + .bin)"
+                npu_not = "Intel AI Boost NPU - OpenVINO export sonrasi kullanilabilir"
+            elif "amd" in n.get("tur", "").lower():
+                npu_format = "ONNX Runtime + VitisAI (.onnx INT8)"
+                npu_not = "AMD Ryzen AI NPU - ONNX INT8 quantize sonrasi kullanilabilir"
+            else:
+                npu_format = "ONNX / TFLite"
+                npu_not = f"{n['tur']} - Model export sonrasi kullanilabilir"
+            print(f"  {Fore.WHITE}[{secenek_no}] {Fore.MAGENTA}{n['tur']}{Style.RESET_ALL}")
+            print(f"      {n['ad']}")
+            print(f"      {Fore.CYAN}{npu_not}{Style.RESET_ALL}")
+            print(f"      {Fore.YELLOW}Format: {npu_format} (once model.export() yapin){Style.RESET_ALL}")
+            print()
+            secenekler.append({
+                "no": secenek_no, "cihaz": "cpu", "batch": 4,
+                "aciklama": f"NPU Cikarim - {n['tur']}",
+            })
+            secenek_no += 1
+    elif mod == "egitim" and npu:
         print(f"  {Fore.MAGENTA}[!] NPU tespit edildi ancak egitimde kullanilmaz.{Style.RESET_ALL}")
         for n in npu:
-            print(f"      {n['tur']}: {n['ad']} (sadece inference)")
+            print(f"      {n['tur']}: {n['ad']} (sadece cikarim - menu [6])")
         print()
+
+    if mod == "egitim":
+        print(f"  {Fore.WHITE}[{secenek_no}] {Fore.CYAN}Google Colab (Ucretsiz GPU){Style.RESET_ALL}")
+        print(f"      NVIDIA T4 GPU")
+        print(f"      {Fore.CYAN}notebooks/hades_colab_egitim.ipynb dosyasini Colab'a yukleyin{Style.RESET_ALL}")
+    else:
+        print(f"  {Fore.WHITE}[{secenek_no}] {Fore.CYAN}Google Colab (Ucretsiz GPU){Style.RESET_ALL}")
+        print(f"      NVIDIA T4 GPU")
+        print(f"      {Fore.CYAN}Cikarim icin Colab notebook'u kullanilabilir{Style.RESET_ALL}")
+    print()
+    secenekler.append({
+        "no": secenek_no, "cihaz": "colab", "batch": 16,
+        "aciklama": "Google Colab - Ucretsiz NVIDIA T4 GPU",
+    })
+    secenek_no += 1
 
     print(f"{Fore.CYAN}{'-' * 60}{Style.RESET_ALL}")
     while True:
         try:
-            secim = input(f"{Fore.CYAN}  Egitim cihazi seciminiz [1-{len(secenekler)}, Enter=1]: {Style.RESET_ALL}").strip()
+            secim = input(f"{Fore.CYAN}  Cihaz seciminiz [1-{len(secenekler)}, Enter=1]: {Style.RESET_ALL}").strip()
             if secim == "":
                 secilen = secenekler[0]
                 break
@@ -544,8 +648,25 @@ def cihaz_secimi_yap(profil=None):
             break
 
     print()
-    print(f"{Fore.GREEN}[+] Secilen cihaz: {secilen['aciklama']}{Style.RESET_ALL}")
-    print(f"{Fore.GREEN}[+] Batch size    : {secilen['batch']}{Style.RESET_ALL}")
+    if secilen["cihaz"] == "colab":
+        print(f"{Fore.CYAN}[+] Secilen cihaz: {secilen['aciklama']}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}[!] Google Colab'da egitim icin:{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}    1. notebooks/hades_colab_egitim.ipynb dosyasini acin{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}    2. Google Drive'a yukleyip Colab'da calistirin{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}    3. Runtime > Change runtime type > T4 GPU secin{Style.RESET_ALL}")
+    elif secilen["cihaz"] == "directml":
+        print(f"{Fore.GREEN}[+] Secilen cihaz: {secilen['aciklama']}{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}[+] Batch size    : {secilen['batch']}{Style.RESET_ALL}")
+        if mod == "egitim":
+            print(f"{Fore.YELLOW}[!] DirectML GPU tespit edildi ancak egitim CPU'da calisacak.{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}[!] Egitim sonrasi otomatik OpenVINO/ONNX export yapilir.{Style.RESET_ALL}")
+            print(f"{Fore.CYAN}[*] Cikarim (Menu [6]) GPU uzerinde calisacak.{Style.RESET_ALL}")
+            print(f"{Fore.CYAN}[*] En hizli egitim: Google Colab (menu secenegi [son secenek]).{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.GREEN}[+] DirectML GPU cikarimda kullanilacak.{Style.RESET_ALL}")
+    else:
+        print(f"{Fore.GREEN}[+] Secilen cihaz: {secilen['aciklama']}{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}[+] Batch size    : {secilen['batch']}{Style.RESET_ALL}")
     print()
 
     return secilen

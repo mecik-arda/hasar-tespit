@@ -3,6 +3,7 @@ proje:
   surum: 1.0.0
 veri:
   etiket_klasoru: hasar-ornek
+  etiketli_klasor: hasar-ornek-labelli
   cikti_klasoru: data
   train_orani: 0.8
   val_orani: 0.2
@@ -39,15 +40,19 @@ egitim:
   warmup_epochs: 3
   warmup_momentum: 0.8
   warmup_bias_lr: 0.1
+  fl_gamma: 1.5
 cikarim:
   guven_eşigi: 0.25
   iou_esigi: 0.7
   cikti_klasoru: runs/predict
   gorsel_kaydet: true
   json_kaydet: true
+  tta_aktif: false
 siniflar:
   0: Cizik
   1: Gocuk
   2: Cam Kirigi
   3: Pas
   4: Kus Pisligi
+  5: Far Kirigi
+  6: Patlak Lastik

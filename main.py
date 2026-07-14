@@ -11,6 +11,7 @@ PROJE_KOKU = Path(__file__).parent
 sys.path.insert(0, str(PROJE_KOKU))
 
 SECILI_CIHAZ = None
+SECILI_CIHAZ_CIKARIM = None
 
 HADES_LOGO = r"""
   _   _    _    ____  _____ ____    ____   ____    _    _   _ _   _ _____ ____  
@@ -23,6 +24,71 @@ HADES_LOGO = r"""
 
 def ekrani_temizle():
     os.system("cls" if os.name == "nt" else "clear")
+
+
+YARDIM_METINLERI = {
+    "ana_menu": """
+  {c}ANA MENU YARDIM{rs}
+  {c}========================================{rs}
+  Secim yapmak icin 0-14 arasi bir rakam girin.
+
+  {w}1-4{rs}   Veri hazirlama (donanim, etiket, artirim, bolme)
+  {w}5-7{rs}   Model egitimi, hasar tespiti, rapor
+  {w}8-10{rs}  Testler, model secimi, model ayarlari
+  {w}11-13{rs} Gorsel toplama, kalite kontrol, etiket dogrulama
+  {w}14{rs}    Model bilgileri (egitim tarihi, dogruluk)
+  {w}0{rs}     Cikis
+""",
+    "egitim": """
+  {c}EGITIM YARDIM{rs}
+  {c}========================================{rs}
+  {w}Epoch{rs}      : Veri setinin kac kez tekrarlanacagi (10-100 arasi)
+  {w}Batch Size{rs} : Tek seferde islenecek gorsel sayisi (bellege gore)
+  {w}Img Size{rs}   : Gorsel cozunurlugu (320 hizli, 640 kaliteli)
+  {w}Cihaz{rs}      : cpu / cuda / colab
+  {w}Focal Loss{rs} : Zor ornekleri agirliklandirma (0.0 kapali, 1.5 orta)
+
+  Bos birakmak config.yaml'daki varsayilani kullanir.
+""",
+    "cikarim": """
+  {c}HASAR TESPITI YARDIM{rs}
+  {c}========================================{rs}
+  {w}Tekli Gorsel{rs} : Belirli bir dosyayi tarar. 'rastgele' yazinca ornek secer.
+  {w}Toplu Tarama{rs} : Klasordeki tum gorselleri sirayla tarar, genel rapor cikarir.
+  {w}TTA{rs}          : Test Time Augmentation. Gorseli farkli acilarda tekrar tekrar
+              tarayip tahminleri birlestirir. Daha dogru ama daha yavas.
+""",
+    "cihaz_secimi": """
+  {c}CIHAZ SECIMI YARDIM{rs}
+  {c}========================================{rs}
+  {w}GPU{rs}  : En hizli secenek. NVIDIA CUDA veya Intel Arc / AMD GPU.
+  {w}CPU{rs}  : Her zaman calisir, GPU yoksa tek secenek.
+  {w}NPU{rs}  : Sadece cikarim (inference) icindir, egitimde kullanilmaz.
+  {w}Colab{rs}: Google'in ucretsiz GPU'su. Internet gerektirir.
+""",
+    "genel": """
+  {c}HADES YARDIM{rs}
+  {c}========================================{rs}
+  Herhangi bir giris ekraninda {w}/yardim{rs} yazarak bu ekrani gorebilirsiniz.
+
+  {w}Is Akisi{rs}   : 1 > 9 > 10 > 2 > 3 > 4 > 5 > 6
+  {w}Klasor{rs}     : hasar-ornek/ (gorseller), data/ (veri seti)
+  {w}Cikti{rs}      : hasar-sonucu/ (tespit sonuclari)
+  {w}Model{rs}      : runs/train/hades_egitim/weights/best.pt
+  {w}Config{rs}     : config.yaml (tum ayarlar)
+""",
+}
+
+
+def yardimli_input(istem, yardim_anahtari="genel"):
+    while True:
+        girdi = input(istem).strip()
+        if girdi.lower() in ("/yardim", "/help", "/h", "/?"):
+            ekrani_temizle()
+            metin = YARDIM_METINLERI.get(yardim_anahtari, YARDIM_METINLERI["genel"])
+            print(metin.format(c=Fore.CYAN, w=Fore.WHITE, rs=Style.RESET_ALL, y=Fore.YELLOW))
+            continue
+        return girdi
 
 
 def basligi_yazdir():
@@ -43,10 +109,10 @@ def menuyu_yazdir():
     print(f"      hasar-ornek klasorunde LabelImg uygulamasini baslatir.")
     print()
     print(f"  {Fore.WHITE}[3] {Fore.YELLOW}Veri Artirimi (Augmentation){Style.RESET_ALL}")
-    print(f"      Etiketlenen gorselleri ayarlara gore cogaltir.")
+    print(f"      Etiketlenen gorselleri (hasar-ornek + hasar-ornek-labelli) ayarlara gore cogaltir.")
     print()
     print(f"  {Fore.WHITE}[4] {Fore.YELLOW}Veri Bolme (Train/Val Split){Style.RESET_ALL}")
-    print(f"      Verileri train/val (%80-%20) klasorlerine paylastirir.")
+    print(f"      hasar-ornek/ + hasar-ornek-labelli/ verilerini train/val (%80-%20) klasorlerine paylastirir.")
     print()
     print(f"  {Fore.WHITE}[5] {Fore.YELLOW}Model Egitimini Baslat{Style.RESET_ALL}")
     print(f"      Transfer ogrenimi ile egitim sureclerini baslatir.")
@@ -75,6 +141,9 @@ def menuyu_yazdir():
     print(f"  {Fore.WHITE}[13] {Fore.YELLOW}Etiket Dogrulama{Style.RESET_ALL}")
     print(f"      Etiketlerin format, sinir, overlap ve dagilim kontrolunu yapar.")
     print()
+    print(f"  {Fore.WHITE}[14] {Fore.YELLOW}Model Bilgileri{Style.RESET_ALL}")
+    print(f"      Son egitim tarihi, dogruluk oranlari ve model metriklerini gosterir.")
+    print()
     print(f"  {Fore.WHITE}[0] {Fore.RED}Cikis{Style.RESET_ALL}")
     print(f"      Uygulamayi sonlandirir.")
     print()
@@ -82,12 +151,14 @@ def menuyu_yazdir():
 
 
 def donanim_kontrolu_calistir():
-    global SECILI_CIHAZ
+    global SECILI_CIHAZ, SECILI_CIHAZ_CIKARIM
     from src.hardware_check import donanim_ozeti_yazdir, cihaz_secimi_yap
     print()
     profil = donanim_ozeti_yazdir()
     print()
-    SECILI_CIHAZ = cihaz_secimi_yap(profil)
+    SECILI_CIHAZ = cihaz_secimi_yap(profil, mod="egitim")
+    print()
+    SECILI_CIHAZ_CIKARIM = cihaz_secimi_yap(profil, mod="cikarim")
     print()
 
 
@@ -126,7 +197,7 @@ def egitim_calistir():
         print(f"{Fore.GREEN}[+] Onceden secilen batch: {SECILI_CIHAZ.get('batch', 'auto')}{Style.RESET_ALL}")
         print()
 
-    epoch_girdi = input(f"{Fore.CYAN}    Epoch sayisi [Enter=varsayilan]: {Style.RESET_ALL}").strip()
+    epoch_girdi = yardimli_input(f"{Fore.CYAN}    Epoch sayisi [Enter=varsayilan]: {Style.RESET_ALL}", "egitim")
     epoch_sayisi = None
     if epoch_girdi:
         try:
@@ -134,7 +205,7 @@ def egitim_calistir():
         except ValueError:
             print(f"{Fore.RED}[-] Gecersiz epoch sayisi. Varsayilan kullanilacak.{Style.RESET_ALL}")
 
-    batch_girdi = input(f"{Fore.CYAN}    Batch size [Enter=varsayilan]: {Style.RESET_ALL}").strip()
+    batch_girdi = yardimli_input(f"{Fore.CYAN}    Batch size [Enter=varsayilan]: {Style.RESET_ALL}", "egitim")
     batch_size = None
     if batch_girdi:
         try:
@@ -162,18 +233,46 @@ def egitim_calistir():
         if batch_size is None:
             batch_size = SECILI_CIHAZ.get("batch", None)
 
+    fl_girdi = input(f"{Fore.CYAN}    Focal Loss gucu [0.0-2.0, Enter=1.5]: {Style.RESET_ALL}").strip()
+    fl_gamma = None
+    if fl_girdi:
+        try:
+            fl_gamma = float(fl_girdi)
+        except ValueError:
+            print(f"{Fore.RED}[-] Gecersiz fl_gamma. Varsayilan kullanilacak.{Style.RESET_ALL}")
+
     print()
-    egitim_baslat(epoch_sayisi=epoch_sayisi, batch_size=batch_size, cihaz=cihaz, img_size=img_size)
+    egitim_baslat(epoch_sayisi=epoch_sayisi, batch_size=batch_size, cihaz=cihaz, img_size=img_size, fl_gamma=fl_gamma)
     print()
 
 
 def cikarim_calistir():
+    global SECILI_CIHAZ_CIKARIM
     import random
     from src.pipeline import hasar_tespiti_yap, toplu_hasar_tespiti_yap
 
     cikti_klasoru = PROJE_KOKU / "hasar-sonucu"
     ornek_klasoru = PROJE_KOKU / "hasar-ornek"
     gorsel_uzantilari = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
+
+    if SECILI_CIHAZ_CIKARIM is not None:
+        print(f"{Fore.GREEN}[+] Cikarim cihazi: {SECILI_CIHAZ_CIKARIM.get('aciklama', 'secili degil')}{Style.RESET_ALL}")
+        print()
+
+    from src.pipeline import yapilandirma_yukle, yapilandirma_kaydet
+    config = yapilandirma_yukle()
+    mevcut_tta = config.get("cikarim", {}).get("tta_aktif", False)
+    print(f"{Fore.YELLOW}[*] TTA (Test Time Augmentation): {Fore.GREEN}AKTIF{Style.RESET_ALL}" if mevcut_tta else f"{Fore.YELLOW}[*] TTA (Test Time Augmentation): {Fore.RED}KAPALI{Style.RESET_ALL}")
+    tta_girdi = yardimli_input(f"{Fore.CYAN}    TTA aktif edilsin mi? (E/h) [Enter=hayir]: {Style.RESET_ALL}", "cikarim").lower()
+    if tta_girdi in ("e", "evet", "y", "yes", "1"):
+        config["cikarim"]["tta_aktif"] = True
+        yapilandirma_kaydet(config)
+        print(f"{Fore.GREEN}[+] TTA aktif edildi.{Style.RESET_ALL}")
+    elif tta_girdi in ("h", "hayir", "n", "no", "0"):
+        config["cikarim"]["tta_aktif"] = False
+        yapilandirma_kaydet(config)
+        print(f"{Fore.YELLOW}[+] TTA kapatildi.{Style.RESET_ALL}")
+    print()
 
     print()
     print(f"{Fore.YELLOW}  [HASAR TESPITI MENU]{Style.RESET_ALL}")
@@ -436,6 +535,13 @@ def etiket_dogrulama_calistir():
     print()
 
 
+def model_bilgisi_calistir():
+    from src.train import model_bilgisi_goster
+    print()
+    model_bilgisi_goster()
+    print()
+
+
 def testleri_calistir():
     import unittest
     print()
@@ -484,11 +590,13 @@ def menu_secimi_isle(secim):
         kalite_kontrol_calistir()
     elif secim == "13":
         etiket_dogrulama_calistir()
+    elif secim == "14":
+        model_bilgisi_calistir()
     elif secim == "0":
         cikis_yap()
         return False
     else:
-        print(f"{Fore.RED}[-] Gecersiz secim! Lutfen 0-13 arasinda bir deger girin.{Style.RESET_ALL}")
+        print(f"{Fore.RED}[-] Gecersiz secim! Lutfen 0-14 arasinda bir deger girin.{Style.RESET_ALL}")
         print()
     return True
 
@@ -499,7 +607,7 @@ def ana_dongu():
         try:
             basligi_yazdir()
             menuyu_yazdir()
-            secim = input(f"\n{Fore.CYAN}  Seciminiz [0-13]: {Style.RESET_ALL}").strip()
+            secim = yardimli_input(f"\n{Fore.CYAN}  Seciminiz [0-14]: {Style.RESET_ALL}", "ana_menu")
             calisiyor = menu_secimi_isle(secim)
             if calisiyor:
                 input(f"\n{Fore.YELLOW}  Devam etmek icin Enter'a basin...{Style.RESET_ALL}")

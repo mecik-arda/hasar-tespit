@@ -67,7 +67,7 @@ class DonanimTesti(unittest.TestCase):
     @patch("builtins.input", return_value="")
     def test_cihaz_secimi_varsayilan_cpu(self, mock_input):
         profil = donanim_profili_olustur()
-        secim = cihaz_secimi_yap(profil)
+        secim = cihaz_secimi_yap(profil, mod="egitim")
         self.assertIsNotNone(secim)
         self.assertIn("cihaz", secim)
         self.assertIn("batch", secim)
@@ -77,10 +77,18 @@ class DonanimTesti(unittest.TestCase):
     @patch("builtins.input", return_value="1")
     def test_cihaz_secimi_ilk_secenek(self, mock_input):
         profil = donanim_profili_olustur()
-        secim = cihaz_secimi_yap(profil)
+        secim = cihaz_secimi_yap(profil, mod="egitim")
         self.assertIsNotNone(secim)
         self.assertIn("cihaz", secim)
         self.assertGreaterEqual(secim["batch"], 4)
+
+    @patch("builtins.input", return_value="")
+    def test_cihaz_secimi_cikarim_modu(self, mock_input):
+        profil = donanim_profili_olustur()
+        secim = cihaz_secimi_yap(profil, mod="cikarim")
+        self.assertIsNotNone(secim)
+        self.assertIn("cihaz", secim)
+        self.assertEqual(secim["cihaz"], "cpu")
 
 
 if __name__ == "__main__":

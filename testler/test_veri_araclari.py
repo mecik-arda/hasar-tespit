@@ -20,7 +20,7 @@ class VeriAraclariTesti(unittest.TestCase):
     def test_veri_sinif_sayisi(self):
         yapilandirma = yapilandirma_yukle()
         siniflar = yapilandirma["siniflar"]
-        self.assertEqual(len(siniflar), 5)
+        self.assertEqual(len(siniflar), 7)
 
     def test_model_tur_gecerliligi(self):
         yapilandirma = yapilandirma_yukle()

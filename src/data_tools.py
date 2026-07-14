@@ -123,6 +123,8 @@ def augmentation_uygula():
         return False
 
     etiket_klasoru = PROJE_KOKU / yapilandirma["veri"]["etiket_klasoru"]
+    etiketli_klasor_adi = yapilandirma["veri"].get("etiketli_klasor", "hasar-ornek-labelli")
+    etiketli_klasor = PROJE_KOKU / etiketli_klasor_adi
     cikti_klasoru = etiket_klasoru / "augmented"
     cikti_klasoru.mkdir(parents=True, exist_ok=True)
 
@@ -157,19 +159,39 @@ def augmentation_uygula():
     for uzanti in gorsel_uzantilari:
         gorseller.extend(etiket_klasoru.glob(f"*{uzanti}"))
         gorseller.extend(etiket_klasoru.glob(f"*{uzanti.upper()}"))
-
     gorseller = [g for g in gorseller if "augmented" not in str(g)]
 
-    if not gorseller:
-        print(f"{Fore.RED}[-] Etiket klasorunde gorsel bulunamadi: {etiket_klasoru}{Style.RESET_ALL}")
+    # Etiketli hazir klasorden de gorselleri dahil et
+    labelli_gorseller = []
+    if etiketli_klasor.exists():
+        for uzanti in gorsel_uzantilari:
+            labelli_gorseller.extend(etiketli_klasor.glob(f"*{uzanti}"))
+            labelli_gorseller.extend(etiketli_klasor.glob(f"*{uzanti.upper()}"))
+        labelli_gorseller = [g for g in labelli_gorseller if "augmented" not in str(g)]
+
+    tum_gorseller = gorseller + labelli_gorseller
+
+    if not tum_gorseller:
+        print(f"{Fore.RED}[-] Hicbir klasorde gorsel bulunamadi:{Style.RESET_ALL}")
+        print(f"{Fore.WHITE}    1. {etiket_klasoru}/ (etiketleme klasoru){Style.RESET_ALL}")
+        if etiketli_klasor.exists():
+            print(f"{Fore.WHITE}    2. {etiketli_klasor}/ (hazir etiketli){Style.RESET_ALL}")
         return False
 
-    print(f"{Fore.BLUE}[*] Augmentation basliyor...{Style.RESET_ALL}")
-    print(f"{Fore.WHITE}    Gorsel sayisi: {len(gorseller)}{Style.RESET_ALL}")
-    print(f"{Fore.WHITE}    Carpma katsayisi: {carpma_katsayisi}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}  HADES DETECTOR - Veri Artirimi{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
+    print()
+    print(f"{Fore.YELLOW}[*] Kaynak klasorler:{Style.RESET_ALL}")
+    print(f"    {Fore.WHITE}{etiket_klasoru}/: {len(gorseller)} gorsel{Style.RESET_ALL}")
+    if labelli_gorseller:
+        print(f"    {Fore.WHITE}{etiketli_klasor}/ (hazir etiketli): {len(labelli_gorseller)} gorsel{Style.RESET_ALL}")
+    print(f"    {Fore.WHITE}Toplam: {len(tum_gorseller)} gorsel{Style.RESET_ALL}")
+    print(f"    {Fore.WHITE}Carpma katsayisi: {carpma_katsayisi}{Style.RESET_ALL}")
+    print()
 
     toplam_uretilen = 0
-    for gorsel_yolu in gorseller:
+    for gorsel_yolu in tum_gorseller:
         gorsel = cv2.imread(str(gorsel_yolu))
         if gorsel is None:
             continue
@@ -225,9 +247,65 @@ def augmentation_uygula():
     return True
 
 
+def _klasorden_gorsel_tara(klasor_yolu, gorsel_uzantilari, augmented_dahil=True):
+    """Bir klasordeki tum gorselleri (ve opsiyonel olarak augmented/ alt klasorunu) tarar.
+    Her gorsel ile ayni isimde .txt etiketi varsa (gorsel, etiket_yolu) tuple'i olarak dondurur.
+    """
+    if not klasor_yolu.exists():
+        return []
+    sonuc = []
+    klasor_yolu = Path(klasor_yolu)
+    for uzanti in gorsel_uzantilari:
+        sonuc.extend(klasor_yolu.glob(f"*{uzanti}"))
+        sonuc.extend(klasor_yolu.glob(f"*{uzanti.upper()}"))
+    if augmented_dahil:
+        augmented_klasoru = klasor_yolu / "augmented"
+        if augmented_klasoru.exists():
+            for uzanti in gorsel_uzantilari:
+                sonuc.extend(augmented_klasoru.glob(f"*{uzanti}"))
+                sonuc.extend(augmented_klasoru.glob(f"*{uzanti.upper()}"))
+    return list(set(sonuc))
+
+
+def _etiketli_gorselleri_topla(yapilandirma, gorsel_uzantilari=None):
+    """Tum kaynaklardan etiketlenmis gorselleri toplar:
+      1. hasar-ornek/ + augmented/ (etiketleme yapilan klasor)
+      2. hasar-ornek-labelli/ (hazir etiketli veri klasoru)
+
+    Returns:
+        list[Path]: (gorsel_yolu, etiket_yolu) tuple listesi
+    """
+    if gorsel_uzantilari is None:
+        gorsel_uzantilari = [".jpg", ".jpeg", ".png", ".bmp", ".webp"]
+
+    tum_eslesenler = []
+
+    # Kaynak 1: hasar-ornek/ (etiketleme klasoru)
+    etiket_klasoru = PROJE_KOKU / yapilandirma["veri"]["etiket_klasoru"]
+    ham_gorseller = _klasorden_gorsel_tara(etiket_klasoru, gorsel_uzantilari, augmented_dahil=True)
+    for g in ham_gorseller:
+        etiket = g.with_suffix(".txt")
+        if etiket.exists():
+            tum_eslesenler.append((g, etiket))
+
+    # Kaynak 2: hasar-ornek-labelli/ (hazir etiketli veri)
+    etiketli_klasor_adi = yapilandirma["veri"].get("etiketli_klasor", "hasar-ornek-labelli")
+    etiketli_klasor = PROJE_KOKU / etiketli_klasor_adi
+    if etiketli_klasor.exists():
+        labelli_gorseller = _klasorden_gorsel_tara(etiketli_klasor, gorsel_uzantilari, augmented_dahil=False)
+        for g in labelli_gorseller:
+            etiket = g.with_suffix(".txt")
+            if etiket.exists():
+                tum_eslesenler.append((g, etiket))
+
+    return tum_eslesenler
+
+
 def veri_bol():
     yapilandirma = yapilandirma_yukle()
     etiket_klasoru = PROJE_KOKU / yapilandirma["veri"]["etiket_klasoru"]
+    etiketli_klasor_adi = yapilandirma["veri"].get("etiketli_klasor", "hasar-ornek-labelli")
+    etiketli_klasor = PROJE_KOKU / etiketli_klasor_adi
     veri_klasoru = PROJE_KOKU / yapilandirma["veri"]["cikti_klasoru"]
     train_orani = yapilandirma["veri"].get("train_orani", 0.8)
 
@@ -239,51 +317,43 @@ def veri_bol():
     for klasor in [train_gorsel_klasoru, val_gorsel_klasoru, train_etiket_klasoru, val_etiket_klasoru]:
         klasor.mkdir(parents=True, exist_ok=True)
 
-    gorsel_uzantilari = [".jpg", ".jpeg", ".png", ".bmp", ".webp"]
-    gorseller = []
-    for uzanti in gorsel_uzantilari:
-        gorseller.extend(etiket_klasoru.glob(f"*{uzanti}"))
-        gorseller.extend(etiket_klasoru.glob(f"*{uzanti.upper()}"))
+    eslesenler = _etiketli_gorselleri_topla(yapilandirma)
 
-    augmented_klasoru = etiket_klasoru / "augmented"
-    if augmented_klasoru.exists():
-        for uzanti in gorsel_uzantilari:
-            gorseller.extend(augmented_klasoru.glob(f"*{uzanti}"))
-            gorseller.extend(augmented_klasoru.glob(f"*{uzanti.upper()}"))
-
-    gorseller = list(set(gorseller))
-
-    if not gorseller:
-        print(f"{Fore.RED}[-] Bolunecek gorsel bulunamadi.{Style.RESET_ALL}")
+    if not eslesenler:
+        print(f"{Fore.RED}[-] Bolunecek etiketli gorsel bulunamadi.{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}[*] Kontrol edilen klasorler:{Style.RESET_ALL}")
+        print(f"{Fore.WHITE}    1. {etiket_klasoru}/ (ve augmented/ alt klasoru){Style.RESET_ALL}")
+        print(f"{Fore.WHITE}    2. {etiketli_klasor}/ (hazir etiketli veri){Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}[*] Once etiketleme yapin veya hazir veri koyun.{Style.RESET_ALL}")
         return False
 
-    gecerli_gorseller = []
-    for gorsel_yolu in gorseller:
-        etiket_yolu = gorsel_yolu.with_suffix(".txt")
-        if etiket_yolu.exists():
-            gecerli_gorseller.append(gorsel_yolu)
+    random.shuffle(eslesenler)
+    ayrac_noktasi = int(len(eslesenler) * train_orani)
+    train_ciftleri = eslesenler[:ayrac_noktasi]
+    val_ciftleri = eslesenler[ayrac_noktasi:]
 
-    if not gecerli_gorseller:
-        print(f"{Fore.RED}[-] Etiket dosyasi bulunamadi. Once etiketleme yapin.{Style.RESET_ALL}")
-        return False
+    # Kaynak istatistikleri
+    ham_kaynakli = sum(1 for g, _ in eslesenler if etiket_klasoru.absolute() in g.parents or (etiket_klasoru / "augmented").absolute() in g.parents)
+    labelli_kaynakli = len(eslesenler) - ham_kaynakli
 
-    random.shuffle(gecerli_gorseller)
-    ayrac_noktasi = int(len(gecerli_gorseller) * train_orani)
-    train_gorselleri = gecerli_gorseller[:ayrac_noktasi]
-    val_gorselleri = gecerli_gorseller[ayrac_noktasi:]
+    print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}  HADES DETECTOR - Veri Bolme{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
+    print()
+    print(f"{Fore.YELLOW}[*] Veri kaynaklari:{Style.RESET_ALL}")
+    print(f"    {Fore.WHITE}{etiket_klasoru}/ + augmented/: {ham_kaynakli} gorsel{Style.RESET_ALL}")
+    if labelli_kaynakli > 0:
+        print(f"    {Fore.WHITE}{etiketli_klasor}/ (hazir etiketli): {labelli_kaynakli} gorsel{Style.RESET_ALL}")
+    print(f"    {Fore.WHITE}Toplam: {len(eslesenler)} etiketli gorsel{Style.RESET_ALL}")
+    print(f"    {Fore.WHITE}Train: {len(train_ciftleri)} | Val: {len(val_ciftleri)}{Style.RESET_ALL}")
+    print()
 
-    print(f"{Fore.BLUE}[*] Veri bolme islemi basliyor...{Style.RESET_ALL}")
-    print(f"{Fore.WHITE}    Toplam gorsel: {len(gecerli_gorseller)}{Style.RESET_ALL}")
-    print(f"{Fore.WHITE}    Train: {len(train_gorselleri)} | Val: {len(val_gorselleri)}{Style.RESET_ALL}")
-
-    for gorsel_yolu in train_gorselleri:
-        etiket_yolu = gorsel_yolu.with_suffix(".txt")
+    for gorsel_yolu, etiket_yolu in train_ciftleri:
         shutil.move(str(gorsel_yolu), str(train_gorsel_klasoru / gorsel_yolu.name))
         if etiket_yolu.exists():
             shutil.move(str(etiket_yolu), str(train_etiket_klasoru / etiket_yolu.name))
 
-    for gorsel_yolu in val_gorselleri:
-        etiket_yolu = gorsel_yolu.with_suffix(".txt")
+    for gorsel_yolu, etiket_yolu in val_ciftleri:
         shutil.move(str(gorsel_yolu), str(val_gorsel_klasoru / gorsel_yolu.name))
         if etiket_yolu.exists():
             shutil.move(str(etiket_yolu), str(val_etiket_klasoru / etiket_yolu.name))
@@ -451,6 +521,48 @@ def gorsel_indir(sinif_adi=None, max_sayi=50, hedef_klasor=None):
     return toplam_indirilen
 
 
+def roboflow_indir(api_key, proje_yolu, version_no=1, format="yolov8"):
+    try:
+        from roboflow import Roboflow
+    except ImportError:
+        print(f"{Fore.RED}[-] roboflow yuklu degil. 'pip install roboflow' ile yukleyin.{Style.RESET_ALL}")
+        return None
+
+    rf = Roboflow(api_key=api_key)
+
+    print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}  HADES DETECTOR - Roboflow Veri Seti Indirme{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
+    print()
+    print(f"{Fore.YELLOW}[*] Proje: {proje_yolu}{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}[*] Version: {version_no}{Style.RESET_ALL}")
+    print()
+
+    try:
+        project = rf.project(proje_yolu)
+        print(f"{Fore.GREEN}[+] Proje bulundu: {project.name}{Style.RESET_ALL}")
+        version = project.version(version_no)
+        print(f"{Fore.BLUE}[*] Indiriliyor... (bu islem internet hizina bagli olarak surebilir){Style.RESET_ALL}")
+        dataset = version.download(format)
+        indirme_yolu = dataset.location
+        print(f"{Fore.GREEN}[+] Veri seti indirildi: {indirme_yolu}{Style.RESET_ALL}")
+
+        dataset_yaml = Path(indirme_yolu) / "data.yaml"
+        if not dataset_yaml.exists():
+            dataset_yaml = Path(indirme_yolu) / "dataset.yaml"
+        if not dataset_yaml.exists():
+            shutil.copy(dataset_yaml.with_name("data.yaml"), dataset_yaml.with_name("dataset.yaml"))
+
+        print(f"{Fore.YELLOW}[!] Egitim icin: config.yaml'daki veri yolunu bu klasore ayarlayin.{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
+        return indirme_yolu
+    except Exception as hata:
+        print(f"{Fore.RED}[-] Indirme basarisiz: {hata}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}[!] API anahtarini ve proje yolunu kontrol edin.{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}[!] Ornek kullanim: roboflow_indir('api_key', 'workspace/proje', 1){Style.RESET_ALL}")
+        return None
+
+
 if __name__ == "__main__":
     secim = sys.argv[1] if len(sys.argv) > 1 else ""
     if secim == "etiketle":
@@ -463,5 +575,7 @@ if __name__ == "__main__":
         veri_kalite_kontrolu()
     elif secim == "indir":
         gorsel_indir()
+    elif secim == "roboflow":
+        roboflow_indir(sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 1)
     else:
-        print(f"{Fore.YELLOW}Kullanim: python data_tools.py [etiketle|augment|bol|kalite|indir]{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Kullanim: python data_tools.py [etiketle|augment|bol|kalite|indir|roboflow]{Style.RESET_ALL}")

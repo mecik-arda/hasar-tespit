@@ -3,6 +3,7 @@ import json
 import yaml
 import cv2
 import time
+import os
 from pathlib import Path
 from colorama import Fore, Style, init
 
@@ -20,6 +21,121 @@ SINIF_RENKLERI = {
     3: (0, 128, 0),
     4: (255, 0, 255),
 }
+
+_DML_CIHAZ = None
+_DML_KONTROL_EDILDI = False
+_OPENVINO_KONTROL_EDILDI = False
+_OPENVINO_VAR = False
+
+
+def _directml_cihazini_al():
+    """DirectML GPU cihazini dondurur. Kullanilamiyorsa None.
+    Sonucu cache'ler, tekrar tekrar import etmez.
+    """
+    global _DML_CIHAZ, _DML_KONTROL_EDILDI
+    if _DML_KONTROL_EDILDI:
+        return _DML_CIHAZ
+    _DML_KONTROL_EDILDI = True
+    try:
+        import torch_directml
+        _DML_CIHAZ = torch_directml.device()
+        return _DML_CIHAZ
+    except (ImportError, Exception):
+        return None
+
+
+def _openvino_kullanilabilir_mi():
+    """OpenVINO paketinin yuklu olup olmadigini kontrol eder (tek sefer)."""
+    global _OPENVINO_KONTROL_EDILDI, _OPENVINO_VAR
+    if _OPENVINO_KONTROL_EDILDI:
+        return _OPENVINO_VAR
+    _OPENVINO_KONTROL_EDILDI = True
+    try:
+        import openvino
+        _OPENVINO_VAR = True
+        return True
+    except ImportError:
+        return False
+
+
+def _openvino_model_yolu_bul(pt_model_yolu):
+    """Verilen .pt modelinin OpenVINO export edilmis halini arar.
+    Ultralytics export sonrasi su yapida klasor olusturur:
+      runs/train/hades_egitim/weights/best_openvino_model/
+    """
+    pt_yolu = Path(pt_model_yolu)
+    # OpenVINO export klasoru
+    ov_klasor = pt_yolu.parent / (pt_yolu.stem + "_openvino_model")
+    if ov_klasor.exists() and (ov_klasor / "best.xml").exists():
+        return ov_klasor
+    # Ayrica duz .xml olarak da olabilir
+    ov_xml = pt_yolu.with_suffix(".xml")
+    if ov_xml.exists():
+        return ov_xml
+    return None
+
+
+def _model_yukle_optimize(model_yolu, yapilandirma, amac="cikarim"):
+    """Modeli en uygun backend ile yukler.
+
+    Oncelik sirasi:
+      1. OpenVINO (Intel Arc GPU / NPU hizlandirmasi)
+      2. DirectML (Intel Arc / AMD GPU - yalnizca .pt modellerde)
+      3. PyTorch CPU (her zaman calisir)
+
+    Returns:
+        tuple: (model, backend_adi)
+    """
+    from ultralytics import YOLO
+    model_tur = yapilandirma.get("model", {}).get("tur", "yolo")
+    ModelSinifi = YOLO
+    if model_tur == "rtdetr":
+        from ultralytics import RTDETR
+        ModelSinifi = RTDETR
+
+    model_yolu = str(model_yolu)
+
+    # 1. OpenVINO modeli var mi?
+    ov_yolu = _openvino_model_yolu_bul(model_yolu)
+    if ov_yolu is not None:
+        try:
+            model = ModelSinifi(str(ov_yolu))
+            backend = f"OpenVINO (Intel GPU/NPU)"
+            print(f"{Fore.GREEN}[+] OpenVINO modeli bulundu, GPU/NPU cikarim kullaniliyor.{Style.RESET_ALL}")
+            return model, backend
+        except Exception as e:
+            print(f"{Fore.YELLOW}[!] OpenVINO model yuklenemedi: {e}{Style.RESET_ALL}")
+            # OpenVINO basarisizsa .pt'ye devam et
+
+    # 2. .pt modeli
+    try:
+        model = ModelSinifi(model_yolu)
+    except Exception as e:
+        raise RuntimeError(f"Model yuklenemedi: {e}")
+
+    # 3. DirectML varsa GPU'ya tasi
+    dml = _directml_cihazini_al()
+    if dml is not None:
+        try:
+            import torch
+            if hasattr(model, 'model') and model.model is not None:
+                model.model.to(dml)
+                print(f"{Fore.GREEN}[+] Model DirectML GPU'ya tasindi.{Style.RESET_ALL}")
+                return model, "DirectML GPU"
+        except Exception:
+            pass
+
+    return model, "PyTorch CPU"
+
+
+def _openvino_export_oner(model_yolu):
+    """Eger OpenVINO exportu yoksa kullaniciya oneri mesaji gosterir."""
+    ov_yolu = _openvino_model_yolu_bul(model_yolu)
+    if ov_yolu is None and _openvino_kullanilabilir_mi():
+        print(f"{Fore.YELLOW}[!] OpenVINO exportu bulunamadi. GPU hizlandirmasi icin:{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}    python src/export.py openvino{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}    veya egitim menusunden [5] ile egitimi tekrar calistirin (otomatik export).{Style.RESET_ALL}")
+        print()
 
 
 def yapilandirma_yukle():
@@ -65,6 +181,7 @@ def hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=None, model=N
         cikti_klasoru = cikarim_ayari.get("cikti_klasoru", "runs/predict")
     cikti_klasoru = Path(cikti_klasoru)
     gorsel_kaydet = cikarim_ayari.get("gorsel_kaydet", True)
+    tta_aktif = cikarim_ayari.get("tta_aktif", False)
     if json_kaydet is None:
         json_kaydet = cikarim_ayari.get("json_kaydet", True)
 
@@ -93,29 +210,15 @@ def hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=None, model=N
         print(f"    {Fore.WHITE}Model           : {model_yolu}{Style.RESET_ALL}")
         print(f"    {Fore.WHITE}Guven Esigi     : {guven_esigi}{Style.RESET_ALL}")
         print(f"    {Fore.WHITE}IOU Esigi       : {iou_esigi}{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
-        print()
 
-        model_tur = yapilandirma.get("model", {}).get("tur", "yolo")
-        if model_tur == "rtdetr":
-            from ultralytics import RTDETR as ModelSinifi
-        else:
-            from ultralytics import YOLO as ModelSinifi
         try:
-            model = ModelSinifi(str(model_yolu))
+            model, backend = _model_yukle_optimize(str(model_yolu), yapilandirma)
+            print(f"    {Fore.WHITE}Backend         : {Fore.GREEN}{backend}{Style.RESET_ALL}")
         except Exception as hata:
             print(f"{Fore.RED}[-] Model yuklenemedi: {hata}{Style.RESET_ALL}")
             return None
-    else:
-        model_yolu = getattr(model, "model_path", str(egitilmis_model_yolu_bul()))
-        print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}  HADES DETECTOR - Hasar Tespiti{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}[*] Cikarim Yapilandirmasi{Style.RESET_ALL}")
-        print(f"    {Fore.WHITE}Gorsel          : {gorsel_yolu}{Style.RESET_ALL}")
-        print(f"    {Fore.WHITE}Model           : {model_yolu}{Style.RESET_ALL}")
-        print(f"    {Fore.WHITE}Guven Esigi     : {guven_esigi}{Style.RESET_ALL}")
-        print(f"    {Fore.WHITE}IOU Esigi       : {iou_esigi}{Style.RESET_ALL}")
+
+        _openvino_export_oner(str(model_yolu))
         print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
         print()
 
@@ -137,6 +240,7 @@ def hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=None, model=N
             iou=iou_esigi,
             save=False,
             verbose=False,
+            augment=tta_aktif,
         )
     except Exception as hata:
         print(f"{Fore.RED}[-] Cikarim sirasinda hata: {hata}{Style.RESET_ALL}")
@@ -272,16 +376,14 @@ def toplu_hasar_tespiti_yap(girdi_klasoru, cikti_klasoru, miktar):
         print(f"{Fore.YELLOW}[*] Once model egitimi yapin (Menu secenek 5).{Style.RESET_ALL}")
         return None
 
-    model_tur = yapilandirma.get("model", {}).get("tur", "yolo")
-    if model_tur == "rtdetr":
-        from ultralytics import RTDETR as ModelSinifi
-    else:
-        from ultralytics import YOLO as ModelSinifi
     try:
-        model = ModelSinifi(str(model_yolu))
+        model, backend = _model_yukle_optimize(str(model_yolu), yapilandirma)
+        print(f"    {Fore.WHITE}Cikarim Backend : {Fore.GREEN}{backend}{Style.RESET_ALL}")
     except Exception as hata:
         print(f"{Fore.RED}[-] Model yuklenemedi: {hata}{Style.RESET_ALL}")
         return None
+
+    _openvino_export_oner(str(model_yolu))
 
     print(f"{Fore.GREEN}[+] Model bir kez yuklendi. Toplu tarama basliyor...{Style.RESET_ALL}")
     print()

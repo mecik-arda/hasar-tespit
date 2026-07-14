@@ -11,13 +11,16 @@ Bu proje, görüntü işleme ve derin öğrenme (YOLO / RT-DETR) algoritmaları 
 
 | Gereksinim | Minimum | Önerilen |
 |---|---|---|
-| Python | 3.9+ | 3.10+ |
+| Python | 3.10+ | 3.11 |
 | RAM | 8 GB | 16 GB+ |
 | Disk Alanı | 5 GB | 10 GB+ (modeller için) |
-| GPU (isteğe bağlı) | NVIDIA 4 GB / Intel Arc 4 GB / AMD 4 GB VRAM | NVIDIA 8 GB+ VRAM (CUDA 11.8+) |
+| GPU (isteğe bağlı) | NVIDIA 4 GB / Intel Arc 4 GB / AMD 4 GB VRAM | NVIDIA 8 GB+ (CUDA) veya Intel Arc / AMD (DirectML) |
+| GPU Yazılımı | - | CUDA 11.8+ (NVIDIA) veya `torch_directml` (Intel/AMD) |
 | İşletim Sistemi | Windows 10 / Linux / macOS | Windows 11 |
 
 > **Not:** GPU olmadan da CPU üzerinde eğitim ve çıkarım yapabilirsiniz, sadece daha yavaş olacaktır. Sistem GPU'yu otomatik tespit eder, bulamazsa CPU'ya düşer.
+>
+> **Intel Arc / AMD GPU kullanıcıları:** `pip install torch_directml` ile DirectML kurulumu yapın. Bu, DirectX 12 üzerinden GPU hızlandırması sağlar ve Windows'taki en sorunsuz çözümdür.
 
 ### Bağımlılıklar
 
@@ -25,8 +28,9 @@ Projede kullanılan başlıca paketler (`requirements.txt`):
 
 | Paket | Görev |
 |---|---|
-| `ultralytics` | YOLO model eğitimi ve çıkarımı |
+| `ultralytics` | YOLO/RT-DETR model eğitimi ve çıkarımı |
 | `torch` / `torchvision` | PyTorch derin öğrenme altyapısı |
+| `torch_directml` | **(Opsiyonel)** Intel Arc / AMD / NVIDIA GPU hızlandırması (DirectX 12) |
 | `opencv-python` | Görüntü işleme ve bounding box çizimi |
 | `albumentations` | Veri artırımı (augmentation) |
 | `labelImg` | Görsel etiketleme aracı |
@@ -41,7 +45,7 @@ Projede kullanılan başlıca paketler (`requirements.txt`):
 
 ```bash
 # 1. Depoyu klonlayın ve proje klasörüne girin
-git clone <repo-url> && cd hasar-tespit
+git clone https://github.com/mecik-arda/hasar-tespit && cd hasar-tespit
 
 # 2. Bağımlılıkları yükleyin
 pip install -r requirements.txt
@@ -88,20 +92,24 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```
 
-**Intel Arc GPU (OpenVINO / XPU):**
+**Intel Arc GPU (DirectML - Önerilen):**
 ```bash
-pip install torch torchvision  # CPU sürümü yeterli
-pip install openvino           # OpenVINO hızlandırması için
+# DirectX 12 üzerinden GPU hızlandırması. En sorunsuz Windows çözümü.
+pip install torch_directml
 ```
 
-**AMD Radeon GPU (DirectML / ROCm):**
+**AMD Radeon GPU:**
 ```bash
 # Windows (DirectML):
-pip install torch-directml
+pip install torch_directml
 
 # Linux (ROCm):
 pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm5.7
 ```
+
+> **Not:** Intel Arc GPU'lar için XPU (Intel Extension for PyTorch) şu an Windows'ta
+> pip üzerinden çalışmamaktadır. Detaylı teknik rapor için: [`docs/XPU_INTEL_ARC_RAPORU.md`](docs/XPU_INTEL_ARC_RAPORU.md)
+> Önerilen alternatif: **DirectML** (`pip install torch_directml`).
 
 GPU'nuzun doğru tespit edildiğini doğrulamak için:
 ```bash
@@ -115,32 +123,38 @@ python main.py   # ardından menüden [1] Donanım Kontrolü'nü seçin
 Projede yer alan temel modüller ve görevleri aşağıda açıklanmıştır:
 
 ### `main.py`
-Projenin ana giriş noktasıdır. Kullanıcıya interaktif bir Komut Satırı Arayüzü (CLI) sunar. Bütün alt modüllere (donanım testi, veri etiketleme, veri artırımı, veri bölme, eğitim, model seçimi ve çıkarım) buradan tek tuşla erişilir. Menü seçenekleri `1` ile `10` arasında numaralandırılmıştır.
+Projenin ana giriş noktasıdır. Kullanıcıya interaktif bir Komut Satırı Arayüzü (CLI) sunar. Bütün alt modüllere (donanım testi, veri etiketleme, veri artırımı, veri bölme, eğitim, model seçimi ve çıkarım) buradan tek tuşla erişilir. Menü seçenekleri `0` ile `13` arasında numaralandırılmıştır. Donanım kontrolü sırasında eğitim ve çıkarım için ayrı ayrı cihaz seçimi yapılır.
 
 ### `src/hardware_check.py`
-Sistem kaynaklarını optimize etmekle görevlidir. Tüm GPU (NVIDIA, AMD, Intel Arc) ve NPU donanımlarını tespit eder, Entegre/Harici ayrımı yapar. İçerisinde yer alan fonksiyonlar:
+Sistem kaynaklarını optimize etmekle görevlidir. Tüm GPU (NVIDIA, AMD, Intel Arc) ve NPU donanımlarını tespit eder, DirectML desteğini kontrol eder, Entegre/Harici ayrımı yapar. İçerisinde yer alan fonksiyonlar:
 * `cpu_bilgisi_al()` / `ram_bilgisi_al()`: İşlemci ve bellek bilgilerini toplar.
 * `nvidia_gpu_bilgisi_al()`: NVIDIA GPU'ları nvidia-smi üzerinden tespit eder.
 * `torch_cuda_bilgisi_al()`: PyTorch CUDA kullanılabilirliğini denetler.
+* `directml_bilgisi_al()`: DirectML (DirectX 12) GPU hızlandırmasının kullanılabilirliğini kontrol eder. Intel Arc, AMD Radeon ve NVIDIA GPU'ları tek bir çatı altında destekler.
 * `wmic_gpu_bilgisi_al()`: Windows üzerinde PowerShell Get-CimInstance ile tüm GPU'ları (NVIDIA, AMD, Intel) tarar, WMIC fallback'li.
 * `intel_arc_gpu_bilgisi_al()`: Eğitim yapabilen Intel Arc GPU'ları ayrıca belirler.
 * `npu_bilgisi_al()`: Intel AI Boost, AMD Ryzen AI gibi NPU işlemcileri tespit eder.
 * `tum_gpu_bilgisi_al()`: Sistemdeki tüm GPU'ları tek listede toplar.
-* `donanim_profili_olustur()`: Tüm donanım verilerini toplayarak optimum batch size, hedef cihaz ve eğitim önerisi oluşturur.
-* `donanim_ozeti_yazdir()`: Toplanan bilgileri GPU 0, GPU 1 şeklinde numaralandırarak CLI'da formatlı sunar.
-* `cihaz_secimi_yap()`: Kullanıcıya mevcut GPU/CPU seçeneklerini listeler ve eğitim cihazı seçtirir.
+* `egitim_yapabilir_gpu_var_mi()`: CUDA, DirectML, Intel Arc veya AMD Radeon gibi eğitim yapabilecek GPU'nun varlığını kontrol eder.
+* `donanim_profili_olustur()`: Tüm donanım verilerini toplayarak optimum batch size, hedef cihaz ve eğitim önerisi oluşturur. DirectML varsa CUDA'dan sonra ikinci öncelikte değerlendirir.
+* `donanim_ozeti_yazdir()`: Toplanan bilgileri GPU 0, GPU 1 şeklinde numaralandırarak CLI'da formatlı sunar. DirectML ve NPU tespit edilmişse ayrıca gösterir.
+* `cihaz_secimi_yap(profil, mod)`: Kullanıcıya mevcut GPU/CPU/NPU seçeneklerini listeler. DirectML varsa **"DirectML GPU (Önerilen)"** olarak en üst sırada sunar. `mod="egitim"` modunda NPU seçenek olarak gösterilmez (uyarı verilir), `mod="cikarim"` modunda NPU seçilebilir hale gelir.
 
 ### `src/data_tools.py`
 Veri hazırlama ve işleme süreçlerinin omurgasıdır. Şu fonksiyonları içerir:
 * `yapilandirma_yukle()`: `config.yaml` dosyasını ayrıştırır.
 * `etiketleme_baslat()`: Kullanıcının resimleri etiketleyebilmesi için arka planda `labelImg` aracını başlatır.
 * `augmentation_uygula()`: Albumentations kütüphanesi yardımıyla mevcut eğitim setini döndürme, parlaklık/kontrast değişimi, yatay/dikey çevirme, Gauss gürültüsü ve bulanıklaştırma teknikleriyle çoğaltır.
-* `veri_bol()`: Etiketlenen veri setini eğitim (%80) ve doğrulama (%20) olmak üzere ikiye ayırarak modelin eğitilmesine hazır hale getirir. Klasörler arasında `shutil.move` ile hızlı taşıma yapar.
+* `veri_bol()`: Etiketlenen veri setini eğitim (%80) ve doğrulama (%20) olmak üzere ikiye ayırarak modelin eğitilmesine hazır hale getirir. Klasörler arasında `shutil.move` ile hızlı taşıma yapar. İşlem sonunda `data/dataset.yaml` dosyasını otomatik oluşturur.
+* `veri_kalite_kontrolu()`: Görselleri tarayarak bozuk dosya, düşük çözünürlük, tekdüze piksel ve MD5 hash ile yinelenen görsel tespiti yapar.
+* `gorsel_indir()`: `icrawler` kütüphanesi ile Google'dan sınıf bazlı otomatik görsel toplar. Arama terimleri `config.yaml`'daki `veri.arama_terimleri` alanından okunur.
+* `roboflow_indir()`: Roboflow Universe'den YOLO formatında hazır veri seti indirir. API anahtarı ve proje yolu ile kullanılır.
 
 ### `src/train.py`
 Modelin eğitilmesi ve raporlanmasından sorumludur:
-* `egitim_baslat()`: Girdi parametrelerini (epoch, batch, img_size) yapılandırır ve seçili modeli (YOLO veya RT-DETR) transfer öğrenimi (transfer learning) yöntemiyle eğitmeye başlar. Model türüne göre `YOLO()` veya `RTDETR()` sınıfını otomatik seçer. Çökmeleri önlemek için negatif girdilerde varsayılan değerlere döner.
+* `egitim_baslat()`: Girdi parametrelerini (epoch, batch, img_size, fl_gamma) yapılandırır ve seçili modeli (YOLO veya RT-DETR) transfer öğrenimi (transfer learning) yöntemiyle eğitmeye başlar. Model türüne göre `YOLO()` veya `RTDETR()` sınıfını otomatik seçer. Google Colab seçilirse yönlendirme yapar. Çökmeleri önlemek için negatif girdilerde varsayılan değerlere döner.
 * `egitim_raporu_goster()`: Tamamlanan eğitimin ardından oluşan metrik dosyalarını (`results.csv`, `args.yaml`) bularak terminale yazdırır (mAP, precision, recall, loss değerleri).
+* `model_bilgisi_goster()`: Son eğitim tarihi, model dosyası boyutu, en iyi/son epoch doğruluk metriklerini (mAP50, mAP50-95, precision, recall) gösterir.
 
 ### `src/pipeline.py`
 Eğitilmiş model üzerinden çıkarım (inference) işlemlerini yürütür. YOLO ve RT-DETR modellerini otomatik tanır:
@@ -198,28 +212,43 @@ Açılan menüden aşağıdaki işlemleri sırasıyla yapabilirsiniz. **Önerile
 
 | Seçenek | İşlem | Açıklama |
 |---|---|---|
-| `1` | Donanım Kontrolü | CPU, RAM, GPU (Entegre/Harici), NPU kaynaklarını listeler, eğitim cihazı seçtirir |
+| `1` | Donanım Kontrolü | CPU, RAM, GPU, NPU kaynaklarını listeler; ardından eğitim cihazı ve çıkarım cihazı olmak üzere iki ayrı seçim yaptırır |
 | `2` | Veri Etiketleme | `hasar-ornek/` klasöründe LabelImg uygulamasını başlatır |
 | `3` | Veri Artırımı | Etiketlenen görselleri config.yaml ayarlarına göre çoğaltır |
-| `4` | Veri Bölme | Verileri %80 train / %20 val olarak `data/` klasörüne paylaştırır |
+| `4` | Veri Bölme | Verileri %80 train / %20 val olarak `data/` klasörüne paylaştırır, `dataset.yaml` otomatik oluşturur |
 | `5` | Model Eğitimi | Transfer öğrenimi ile seçili modelin (YOLO/RT-DETR) eğitimini başlatır |
-| `6` | Hasar Tespiti | Tekil veya toplu görselde hasar tespiti yapar |
+| `6` | Hasar Tespiti | Tekil veya toplu görselde hasar tespiti yapar; çıkarım cihazı bilgisi gösterilir |
 | `7` | Eğitim Raporu | Son eğitimin mAP, precision, recall metriklerini gösterir |
-| `8` | Sistem Testleri | Tüm birim ve entegrasyon testlerini koşturur (46 test) |
+| `8` | Sistem Testleri | Tüm birim ve entegrasyon testlerini koşturur |
 | `9` | Model Seçimi | YOLO veya RT-DETR model mimarisini seçer |
 | `10` | Model Ayarları | Seçili modelin neslini ve boyutunu yapılandırır |
 | `11` | Görsel Toplama | Google/Bing'den her sınıf için otomatik hasarlı araç görseli indirir |
 | `12` | Veri Kalite Kontrolü | Görselleri tarar, bozuk/düşük çözünürlük/şüpheli olanları tespit eder |
 | `13` | Etiket Doğrulama | 7 aşamalı etiket kontrolü: format, sınır, overlap, dağılım |
+| `14` | Model Bilgileri | Son eğitim tarihi, mAP50, precision, recall ve model metriklerini gösterir |
 | `0` | Çıkış | Uygulamayı sonlandırır |
+
+> **İpucu:** Herhangi bir giriş ekranında `/yardim` (veya `/help`) yazarak o ekrana özel yardım alabilirsiniz.
+
+### Donanım Kontrolü ve Cihaz Seçimi
+
+Menüden `1` seçeneği ile donanım analizine girdiğinizde:
+- CPU, RAM, GPU (Entegre/Harici ayrımlı), DirectML ve NPU bilgileri listelenir
+- CUDA varsa en üst sırada NVIDIA GPU gösterilir
+- **DirectML** (`torch_directml` yüklüyse) Intel Arc / AMD / NVIDIA GPU için **önerilen** seçenek olarak listelenir
+- **Eğitim cihazı seçimi:** GPU, DirectML, CPU veya Google Colab (ücretsiz T4 GPU) seçenekleri sunulur
+- **Çıkarım cihazı seçimi:** GPU, DirectML, CPU, NPU veya Google Colab seçenekleri sunulur
+- NPU eğitimde kullanılamaz, sadece çıkarımda seçilebilir
+- Google Colab seçeneği `notebooks/hades_colab_egitim.ipynb` notebook'una yönlendirir
 
 ### Eğitim Sırasında Parametre Girme
 
-Menüden `5` seçeneği ile eğitime girdiğinizde, size epoch sayısı, batch size, img size ve cihaz sorulur. **Boş bırakırsanız** `config.yaml`'daki varsayılan değerler kullanılır. Eğer daha önce menüden `1` ile donanım kontrolü yapıp bir eğitim cihazı seçtiyseniz, bu seçim eğitim parametrelerinde varsayılan olarak gelir.
+Menüden `5` seçeneği ile eğitime girdiğinizde, size epoch sayısı, batch size, img size, cihaz ve Focal Loss gücü sorulur. **Boş bırakırsanız** `config.yaml`'daki varsayılan değerler kullanılır. Eğer daha önce menüden `1` ile donanım kontrolü yapıp bir eğitim cihazı seçtiyseniz, bu seçim eğitim parametrelerinde varsayılan olarak gelir.
 
 ### Hasar Tespitinde Görsel Seçimi
 
 Menüden `6` seçeneği ile çıkarım menüsüne girdiğinizde:
+- Önce **TTA (Test Time Augmentation)** açıp kapatabileceğiniz bir seçenek sunulur. TTA aktifken model görseli farklı ölçek ve açılarda birden fazla kez işleyip tahminleri birleştirir, mAP'ı artırır ama daha yavaştır.
 - **Tekli Görsel:** Dosya yolu yazabilir veya `rastgele` yazarak `hasar-ornek/` klasöründen rastgele bir görsel seçtirebilirsiniz
 - **Toplu Tarama:** `hasar-ornek/` klasöründeki tüm (veya belirttiğiniz sayıda) görseli tarar, genel bir JSON raporu oluşturur
 
@@ -274,6 +303,7 @@ Projenin tüm akışı `config.yaml` dosyası üzerinden parametrik olarak yöne
 * `warmup_epochs`: Isınma (warmup) epoch sayısı.
 * `warmup_momentum`: Isınma momentum değeri.
 * `warmup_bias_lr`: Isınma bias öğrenme oranı.
+* `fl_gamma`: Focal Loss gücü. `0.0` = kapalı, `1.5` = orta, `2.0` = yüksek. Dengesiz veri setlerinde zor örnekleri daha iyi öğrenmeyi sağlar.
 
 ### Çıkarım (Inference) Ayarları (`cikarim`)
 * `guven_eşigi`: Hasarın "tespit edilmiş" sayılması için modelin sağlaması gereken minimum güven (confidence) skoru (Örn: `%25` için `0.25`).
@@ -281,6 +311,7 @@ Projenin tüm akışı `config.yaml` dosyası üzerinden parametrik olarak yöne
 * `cikti_klasoru`: Çıkarım sonuçlarının kaydedileceği klasör.
 * `gorsel_kaydet`: Tespit sonuçlarının işaretli görsel olarak kaydedilip kaydedilmeyeceği (`true` / `false`).
 * `json_kaydet`: Tespit sonuçlarının JSON raporu olarak kaydedilip kaydedilmeyeceği (`true` / `false`).
+* `tta_aktif`: Test Time Augmentation. `true` olduğunda görsel farklı ölçek ve açılarda birden fazla kez işlenip tahminler birleştirilir, mAP artar ama hız düşer. Menüden `6` ile değiştirilebilir.
 
 ### Sınıflar (`siniflar`)
 Eğitilecek ve tespit edilecek hasar kategorilerinin ID karşılıkları:
@@ -427,6 +458,34 @@ Desteklenen formatlar: `onnx`, `engine` (TensorRT), `openvino`, `coreml`, `tflit
 
 ---
 
+## NPU Desteği ve Cihaz Esnekliği
+
+### Eğitim ve Çıkarımda Farklı Donanım
+
+Proje, eğitim ve çıkarım (inference) için farklı donanımlar kullanmayı tam destekler. Menüden `[1] Donanım Kontrolü` seçildiğinde önce eğitim cihazı, ardından çıkarım cihazı ayrı ayrı seçtirilir.
+
+| Eğitim | Çıkarım | Durum |
+|---|---|---|
+| NVIDIA GPU (CUDA) | CPU | Sorunsuz |
+| NVIDIA GPU (CUDA) | Farklı GPU | Sorunsuz |
+| CPU | GPU | Sorunsuz |
+| GPU / CPU | NPU (OpenVINO / ONNX export sonrası) | Sorunsuz |
+
+PyTorch model ağırlıkları (`.pt`) donanım bağımsızdır; bir GPU'da eğitilen model herhangi bir CPU veya farklı GPU'da çıkarım için yüklenebilir.
+
+### NPU (Yapay Zeka İşlemcisi) Kullanımı
+
+| Konu | Açıklama |
+|---|---|
+| Eğitim | NPU'lar eğitim için uygun değildir. Eğitim cihazı seçiminde NPU listelenmez, uyarı verilir. |
+| Çıkarım | NPU'lar çıkarım cihazı olarak seçilebilir. Modelin uygun formata export edilmesi gerekir. |
+| Intel NPU | `model.export(format="openvino")` → `.xml` + `.bin` dosyaları ile çıkarım yapılır |
+| AMD Ryzen AI NPU | `model.export(format="onnx")` → INT8 quantize sonrası ONNX Runtime + VitisAI EP ile çıkarım yapılır |
+
+> **Not:** NPU çıkarımı, modelin önce `src/export.py` ile uygun formata dönüştürülmesini gerektirir. Export işlemi sonrası NPU üzerinde yüksek verimlilik ve düşük güç tüketimiyle çıkarım yapılabilir.
+
+---
+
 ## Testler
 
 Sistem testlerini iki şekilde çalıştırabilirsiniz:
@@ -467,10 +526,22 @@ Sistem GPU ve NPU tespiti için önce PowerShell (`Get-CimInstance` / `Get-PnpDe
 
 ### GPU Bulunamadı / CUDA Hatası
 Sistem GPU bulamazsa otomatik olarak CPU'ya düşer. GPU'nuzu test etmek için:
+
+**NVIDIA GPU (CUDA):**
 ```bash
 python -c "import torch; print(torch.cuda.is_available())"
 ```
 `False` dönüyorsa PyTorch'u CUDA destekli yeniden kurun (bkz. Kurulum bölümü).
+
+**Intel Arc / AMD GPU (DirectML):**
+```bash
+pip install torch_directml
+python -c "import torch_directml; print(torch_directml.device_name(0))"
+```
+DirectML, DirectX 12 üzerinden Intel Arc, AMD Radeon ve NVIDIA GPU'ları tek çatı altında destekler. Windows 10/11'de hazır gelir, ek sürücü gerektirmez.
+
+> **Not:** Intel Arc GPU'larda XPU (`intel_extension_for_pytorch`) şu an Windows'ta pip ile çalışmamaktadır.
+> Yerine **DirectML** kullanın. Teknik detaylar için: [`docs/XPU_INTEL_ARC_RAPORU.md`](docs/XPU_INTEL_ARC_RAPORU.md)
 
 ### Eğitim Başlamıyor / Veri Seti Hatası
 - `data/dataset.yaml` dosyasının oluştuğundan emin olun (önce menüden `4` Veri Bölme'yi çalıştırın)

@@ -9,3 +9,9 @@ pyyaml>=6.0
 colorama>=0.4.6
 labelImg
 icrawler>=0.6.6
+
+# --- Opsiyonel GPU hizlandirmasi ---
+# Intel Arc / AMD / NVIDIA (Windows) - DirectX 12 GPU cikarim:
+torch_directml>=0.2.5
+# Intel GPU / NPU cikarim - OpenVINO:
+openvino>=2024.0

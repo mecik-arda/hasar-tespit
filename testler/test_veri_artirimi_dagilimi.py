@@ -34,7 +34,10 @@ class VeriArtirimiTesti(unittest.TestCase):
     @patch("src.data_tools.yapilandirma_yukle")
     def test_bounding_box_sinirlari(self, mock_yapi):
         mock_yapi.return_value = {
-            "veri": {"etiket_klasoru": "test_artirim"},
+            "veri": {
+                "etiket_klasoru": "test_artirim",
+                "etiketli_klasor": "non_existent_folder"
+            },
             "augmentation": {
                 "aktif": True,
                 "carpma_katsayisi": 1,
