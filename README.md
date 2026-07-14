@@ -3,50 +3,65 @@
 > **Bu proje, Soft İş Çözümleri bünyesinde hazırlanmış bir staj projesidir.**  
 > **Oluşturulma Tarihi: 14.07.2026**
 
-Bu proje, görüntü işleme ve derin öğrenme (YOLO) algoritmaları kullanarak araçlar üzerindeki fiziksel hasarları (Çizik, Göçük, Cam Kırığı, Pas vb.) tespit etmek amacıyla geliştirilmiş uçtan uca bir yapay zeka sistemidir.
+Bu proje, görüntü işleme ve derin öğrenme (YOLO) algoritmaları kullanarak araçlar üzerindeki fiziksel hasarları (Çizik, Göçük, Cam Kırığı, Pas, Kuş Pisliği) tespit etmek amacıyla geliştirilmiş uçtan uca bir yapay zeka sistemidir.
 
-## Proje Dizini ve Modüller
+---
 
-Projede yer alan temel modüller ve görevleri aşağıda açıklanmıştır:
+## Ön Koşullar
 
-### `main.py`
-Projenin ana giriş noktasıdır. Kullanıcıya interaktif bir Komut Satırı Arayüzü (CLI) sunar. Bütün alt modüllere (donanım testi, veri etiketleme, veri artırımı, veri bölme, eğitim ve çıkarım) buradan tek tuşla erişilir. Menü seçenekleri `1` ile `9` arasında numaralandırılmıştır.
+| Gereksinim | Minimum | Önerilen |
+|---|---|---|
+| Python | 3.9+ | 3.10+ |
+| RAM | 8 GB | 16 GB+ |
+| Disk Alanı | 5 GB | 10 GB+ (modeller için) |
+| GPU (isteğe bağlı) | NVIDIA 4 GB / Intel Arc 4 GB / AMD 4 GB VRAM | NVIDIA 8 GB+ VRAM (CUDA 11.8+) |
+| İşletim Sistemi | Windows 10 / Linux / macOS | Windows 11 |
 
-### `src/hardware_check.py`
-Sistem kaynaklarını optimize etmekle görevlidir. İçerisinde yer alan fonksiyonlar şunlardır:
-* `wmic_gpu_bilgisi_al()`: Sistemdeki harici GPU donanımını tespit eder.
-* `donanim_profili_olustur()`: CPU çekirdek sayısını, RAM miktarını ve GPU verilerini toplayarak o anki sistemin kapasitesine uygun optimum batch size (işlem boyutu) ve cihaz önerisinde bulunur.
-* `donanim_ozeti_yazdir()`: Toplanan bilgileri kullanıcıya CLI üzerinden formatlı şekilde sunar.
+> **Not:** GPU olmadan da CPU üzerinde eğitim ve çıkarım yapabilirsiniz, sadece daha yavaş olacaktır. Sistem GPU'yu otomatik tespit eder, bulamazsa CPU'ya düşer.
 
-### `src/data_tools.py`
-Veri hazırlama ve işleme süreçlerinin omurgasıdır. Şu fonksiyonları içerir:
-* `yapilandirma_yukle()`: `config.yaml` dosyasını ayrıştırır.
-* `etiketleme_baslat()`: Kullanıcının resimleri etiketleyebilmesi için arka planda `labelImg` aracını başlatır.
-* `augmentation_uygula()`: Albumentations kütüphanesi yardımıyla mevcut eğitim setini bulanıklaştırma, karanlıklaştırma ve çevirme teknikleriyle çoğaltır.
-* `veri_bol()`: Etiketlenen veri setini eğitim (%80) ve doğrulama (%20) olmak üzere ikiye ayırarak modelin eğitilmesine hazır hale getirir. Klasörler arasında `shutil.move` ile hızlı taşıma yapar.
+### Bağımlılıklar
 
-### `src/train.py`
-Modelin eğitilmesi ve raporlanmasından sorumludur:
-* `egitim_baslat()`: Girdi parametrelerini (epoch, batch) yapılandırır ve YOLO modelini transfer öğrenimi (transfer learning) yöntemiyle eğitmeye başlar. Çökmeleri önlemek için negatif girdilerde varsayılan değerlere döner.
-* `egitim_raporu_goster()`: Tamamlanan eğitimin ardından oluşan metrik dosyalarını bularak terminale yazdırır.
+Projede kullanılan başlıca paketler (`requirements.txt`):
 
-### `src/pipeline.py`
-Eğitilmiş model üzerinden çıkarım (inference) işlemlerini yürütür:
-* `egitilmis_model_yolu_bul()`: Son çalıştırılan eğitimden kalan en iyi model ağırlığını (`best.pt`) arar.
-* `hasar_tespiti_yap()`: Verilen tekil bir görüntüyü modele sokarak tespit edilen hasar koordinatlarını (bounding box) çizer ve sonuçları kaydeder.
-* `toplu_hasar_tespiti_yap()`: Özel olarak tasarlanan klasör tarama modülüdür. **`hasar-ornek`** klasöründeki fotoğrafları topluca okuyup otomatik işler ve etiketlenmiş sonuçları tek bir genel JSON raporu eşliğinde **`hasar-sonucu`** klasörüne yazar.
+| Paket | Görev |
+|---|---|
+| `ultralytics` | YOLO model eğitimi ve çıkarımı |
+| `torch` / `torchvision` | PyTorch derin öğrenme altyapısı |
+| `opencv-python` | Görüntü işleme ve bounding box çizimi |
+| `albumentations` | Veri artırımı (augmentation) |
+| `labelImg` | Görsel etiketleme aracı |
+| `psutil` / `py-cpuinfo` | Donanım kaynak takibi |
+| `pyyaml` | YAML yapılandırma dosyası okuma/yazma |
+| `colorama` | Renkli terminal çıktısı |
 
-### `src/export.py`
-* `optimize_edilmis_model_olustur()`: Eğitilmiş PyTorch modelini donanıma daha hızlı yanıt verecek olan ONNX, OpenVINO veya TensorRT gibi formatlara dönüştürerek dışa aktarır.
+---
 
-### `testler/` Klasörü
-Projenin sınırlarını ve hata yönetimini doğrulayan unittest modüllerini barındırır:
-* `test_donanim.py`, `test_veri_araclari.py`, `test_performans.py`
-* `test_dayaniklilik.py` (Karanlık/Bozuk görsellerde kararlılık)
-* `test_gecersiz_girdi.py` (Sahte dosya formatları)
-* `test_limitler.py` (Negatif ve geçersiz konfigürasyon girdileri)
-* `test_yuk_ve_es_zamanlilik.py` (Paralel işlem/stres toleransı)
-* `test_egitim_akisi.py` (Sanal verilerle eğitim döngüsü doğrulaması)
+## Hızlı Başlangıç (İlk Çıkarımınızı 5 Adımda Yapın)
+
+```bash
+# 1. Depoyu klonlayın ve proje klasörüne girin
+git clone <repo-url> && cd hasar-tespit
+
+# 2. Bağımlılıkları yükleyin
+pip install -r requirements.txt
+
+# 3. Görsellerinizi hasar-ornek/ klasörüne atın
+#    (jpg, jpeg, png, bmp, webp formatları desteklenir)
+
+# 4. Ana menüyü başlatın
+python main.py
+
+# 5. Sırasıyla aşağıdaki menü adımlarını izleyin:
+#    [2] → Veri Etiketleme (LabelImg ile hasarları işaretleyin)
+#    [3] → Veri Artırımı (görselleri çoğaltın)
+#    [4] → Veri Bölme (%80 train / %20 val)
+#    [5] → Model Eğitimi
+#    [6] → Hasar Tespiti (eğitilen model ile çıkarım yapın)
+```
+
+> **İpucu:** Eğer sadece sistemi test etmek istiyorsanız, `hasar-ornek/` klasöründe örnek araç fotoğrafları zaten mevcuttur.
+
+---
 
 ## Kurulum
 
@@ -56,7 +71,135 @@ Projeyi çalıştırmadan önce gerekli bağımlılıkları yüklemeniz gerekmek
 pip install -r requirements.txt
 ```
 
-*(Not: Model eğitiminde GPU/CUDA donanım hızlandırmasından tam yararlanabilmek için PyTorch kütüphanesinin sisteminize uygun CUDA sürümünü kurmanız önerilir.)*
+### GPU Desteği Kurulumu
+
+Model eğitiminde GPU donanım hızlandırmasından yararlanmak için sisteminizdeki GPU'ya uygun PyTorch sürümünü kurmanız önerilir:
+
+**NVIDIA GPU (CUDA):**
+```bash
+# CUDA 11.8 için:
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+
+# CUDA 12.1 için:
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+```
+
+**Intel Arc GPU (OpenVINO / XPU):**
+```bash
+pip install torch torchvision  # CPU sürümü yeterli
+pip install openvino           # OpenVINO hızlandırması için
+```
+
+**AMD Radeon GPU (DirectML / ROCm):**
+```bash
+# Windows (DirectML):
+pip install torch-directml
+
+# Linux (ROCm):
+pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm5.7
+```
+
+GPU'nuzun doğru tespit edildiğini doğrulamak için:
+```bash
+python main.py   # ardından menüden [1] Donanım Kontrolü'nü seçin
+```
+
+---
+
+## Proje Dizini ve Modüller
+
+Projede yer alan temel modüller ve görevleri aşağıda açıklanmıştır:
+
+### `main.py`
+Projenin ana giriş noktasıdır. Kullanıcıya interaktif bir Komut Satırı Arayüzü (CLI) sunar. Bütün alt modüllere (donanım testi, veri etiketleme, veri artırımı, veri bölme, eğitim ve çıkarım) buradan tek tuşla erişilir. Menü seçenekleri `1` ile `9` arasında numaralandırılmıştır.
+
+### `src/hardware_check.py`
+Sistem kaynaklarını optimize etmekle görevlidir. Tüm GPU (NVIDIA, AMD, Intel Arc) ve NPU donanımlarını tespit eder, Entegre/Harici ayrımı yapar. İçerisinde yer alan fonksiyonlar:
+* `cpu_bilgisi_al()` / `ram_bilgisi_al()`: İşlemci ve bellek bilgilerini toplar.
+* `nvidia_gpu_bilgisi_al()`: NVIDIA GPU'ları nvidia-smi üzerinden tespit eder.
+* `torch_cuda_bilgisi_al()`: PyTorch CUDA kullanılabilirliğini denetler.
+* `wmic_gpu_bilgisi_al()`: Windows üzerinde WMIC ile tüm GPU'ları (AMD, Intel) tarar.
+* `intel_arc_gpu_bilgisi_al()`: Eğitim yapabilen Intel Arc GPU'ları ayrıca belirler.
+* `npu_bilgisi_al()`: Intel AI Boost, AMD Ryzen AI gibi NPU işlemcileri tespit eder.
+* `tum_gpu_bilgisi_al()`: Sistemdeki tüm GPU'ları tek listede toplar.
+* `donanim_profili_olustur()`: Tüm donanım verilerini toplayarak optimum batch size, hedef cihaz ve eğitim önerisi oluşturur.
+* `donanim_ozeti_yazdir()`: Toplanan bilgileri GPU 0, GPU 1 şeklinde numaralandırarak CLI'da formatlı sunar.
+* `cihaz_secimi_yap()`: Kullanıcıya mevcut GPU/CPU seçeneklerini listeler ve eğitim cihazı seçtirir.
+
+### `src/data_tools.py`
+Veri hazırlama ve işleme süreçlerinin omurgasıdır. Şu fonksiyonları içerir:
+* `yapilandirma_yukle()`: `config.yaml` dosyasını ayrıştırır.
+* `etiketleme_baslat()`: Kullanıcının resimleri etiketleyebilmesi için arka planda `labelImg` aracını başlatır.
+* `augmentation_uygula()`: Albumentations kütüphanesi yardımıyla mevcut eğitim setini döndürme, parlaklık/kontrast değişimi, yatay/dikey çevirme, Gauss gürültüsü ve bulanıklaştırma teknikleriyle çoğaltır.
+* `veri_bol()`: Etiketlenen veri setini eğitim (%80) ve doğrulama (%20) olmak üzere ikiye ayırarak modelin eğitilmesine hazır hale getirir. Klasörler arasında `shutil.move` ile hızlı taşıma yapar.
+
+### `src/train.py`
+Modelin eğitilmesi ve raporlanmasından sorumludur:
+* `egitim_baslat()`: Girdi parametrelerini (epoch, batch, img_size) yapılandırır ve YOLO modelini transfer öğrenimi (transfer learning) yöntemiyle eğitmeye başlar. Çökmeleri önlemek için negatif girdilerde varsayılan değerlere döner.
+* `egitim_raporu_goster()`: Tamamlanan eğitimin ardından oluşan metrik dosyalarını (`results.csv`, `args.yaml`) bularak terminale yazdırır (mAP, precision, recall, loss değerleri).
+
+### `src/pipeline.py`
+Eğitilmiş model üzerinden çıkarım (inference) işlemlerini yürütür:
+* `egitilmis_model_yolu_bul()`: Son çalıştırılan eğitimden kalan en iyi model ağırlığını (`best.pt`) arar.
+* `hasar_tespiti_yap()`: Verilen tekil bir görüntüyü modele sokarak tespit edilen hasar koordinatlarını (bounding box) çizer ve sonuçları kaydeder.
+* `toplu_hasar_tespiti_yap()`: Özel olarak tasarlanan klasör tarama modülüdür. **`hasar-ornek`** klasöründeki fotoğrafları topluca okuyup otomatik işler ve etiketlenmiş sonuçları tek bir genel JSON raporu eşliğinde **`hasar-sonucu`** klasörüne yazar.
+
+### `src/export.py`
+Eğitilmiş modeli donanıma özel optimize formatlara dönüştürür:
+* `model_dışa_aktar()`: Belirtilen formatta (ONNX, TensorRT, OpenVINO, CoreML, TFLite) dışa aktarım yapar.
+* `optimize_edilmis_model_olustur()`: Donanım profiline göre en uygun formatı otomatik seçer (NVIDIA GPU → TensorRT, Intel CPU → OpenVINO, diğer → ONNX).
+
+> **Not:** Model dışa aktarımı şu an yalnızca komut satırından çalışır: `python src/export.py optimize`
+
+### `testler/` Klasörü
+Projenin sınırlarını ve hata yönetimini doğrulayan 10 adet unittest modülünü barındırır (toplam 20 test):
+* `test_donanim.py` — CPU/RAM/GPU/NPU profil yapısı, değer doğrulaması ve cihaz seçimi
+* `test_veri_araclari.py` — config.yaml bütünlüğü ve sınıf sayısı kontrolü
+* `test_performans.py` — Model optimizasyon süresi ve başarı durumu
+* `test_dayaniklilik.py` — Karanlık ve gürültülü görsellerde kararlılık
+* `test_gecersiz_girdi.py` — Boş, sahte ve olmayan dosyalarda hata yönetimi
+* `test_egitim_akisi.py` — Sanal verilerle eğitim döngüsü ve ağırlık oluşumu
+* `test_veri_artirimi_dagilimi.py` — Bounding box koordinat sınır kontrolü (0.0-1.0)
+* `test_cikarim_tutarliligi.py` — PyTorch ve ONNX formatları arası çıkarım tutarlılığı
+* `test_yuk_ve_es_zamanlilik.py` — Çoklu iş parçacığı (multithreading) stres testi
+* `test_limitler.py` — Negatif ve geçersiz konfigürasyon girdilerinde varsayılana dönüş
+
+---
+
+## Menü Kullanım Kılavuzu
+
+Sistemi başlatmak için terminalinizde aşağıdaki komutu çalıştırmanız yeterlidir:
+
+```bash
+python main.py
+```
+
+Açılan menüden aşağıdaki işlemleri sırasıyla yapabilirsiniz. **Önerilen iş akışı:** 2 → 3 → 4 → 5 → 6
+
+| Seçenek | İşlem | Açıklama |
+|---|---|---|
+| `1` | Donanım Kontrolü | CPU, RAM, GPU (Entegre/Harici), NPU kaynaklarını listeler, eğitim cihazı seçtirir |
+| `2` | Veri Etiketleme | `hasar-ornek/` klasöründe LabelImg uygulamasını başlatır |
+| `3` | Veri Artırımı | Etiketlenen görselleri config.yaml ayarlarına göre çoğaltır |
+| `4` | Veri Bölme | Verileri %80 train / %20 val olarak `data/` klasörüne paylaştırır |
+| `5` | Model Eğitimi | Transfer öğrenimi ile YOLO model eğitimini başlatır |
+| `6` | Hasar Tespiti | Tekil veya toplu görselde hasar tespiti yapar |
+| `7` | Eğitim Raporu | Son eğitimin mAP, precision, recall metriklerini gösterir |
+| `8` | Sistem Testleri | Tüm birim ve entegrasyon testlerini koşturur (20 test) |
+| `9` | Model Ayarları | YOLO model neslini (v8/v12) ve boyutunu (n/s/m/l/x) değiştirir |
+| `0` | Çıkış | Uygulamayı sonlandırır |
+
+### Eğitim Sırasında Parametre Girme
+
+Menüden `5` seçeneği ile eğitime girdiğinizde, size epoch sayısı, batch size, img size ve cihaz sorulur. **Boş bırakırsanız** `config.yaml`'daki varsayılan değerler kullanılır. Eğer daha önce menüden `1` ile donanım kontrolü yapıp bir eğitim cihazı seçtiyseniz, bu seçim eğitim parametrelerinde varsayılan olarak gelir.
+
+### Hasar Tespitinde Görsel Seçimi
+
+Menüden `6` seçeneği ile çıkarım menüsüne girdiğinizde:
+- **Tekli Görsel:** Dosya yolu yazabilir veya `rastgele` yazarak `hasar-ornek/` klasöründen rastgele bir görsel seçtirebilirsiniz
+- **Toplu Tarama:** `hasar-ornek/` klasöründeki tüm (veya belirttiğiniz sayıda) görseli tarar, genel bir JSON raporu oluşturur
+
+---
 
 ## Yapılandırma Parametreleri (`config.yaml`)
 
@@ -68,12 +211,18 @@ Projenin tüm akışı `config.yaml` dosyası üzerinden parametrik olarak yöne
 * `train_orani` / `val_orani`: Veri setinin bölünme yüzdeleri (Örn: `0.8` eğitim, `0.2` doğrulama).
 
 ### Veri Artırımı (`augmentation`)
-* `aktif`: Artırım modülünün çalışıp çalışmayacağı.
+* `aktif`: Artırım modülünün çalışıp çalışmayacağı (`true` / `false`).
 * `carpma_katsayisi`: Etiketlenmiş her bir orijinal görselden kaç tane sanal (artırılmış) görsel üretileceği.
-* Diğer parametreler (`donderme_acisi`, `parlaklik_limit`, `gauss_gurultu`, `bulaniklastirma` vb.): Görüntü bozulmalarının ve varyasyonlarının sınır değerleri ve açma/kapatma (true/false) durumları.
+* `donderme_acisi`: Görsellerin maksimum kaç derece döndürüleceği.
+* `parlaklik_limit`: Parlaklık değişiminin üst sınırı.
+* `kontrast_limit`: Kontrast değişiminin üst sınırı.
+* `yatay_cevirme`: Yatay çevirme (horizontal flip) uygulanıp uygulanmayacağı (`true` / `false`).
+* `dikey_cevirme`: Dikey çevirme (vertical flip) uygulanıp uygulanmayacağı (`true` / `false`).
+* `gauss_gurultu`: Gauss gürültüsü (noise) eklenip eklenmeyeceği (`true` / `false`).
+* `bulaniklastirma`: Gaussian bulanıklaştırma uygulanıp uygulanmayacağı (`true` / `false`).
 
 ### Model Ayarları (`model`)
-* `agirlik`: Transfer öğrenimi için temel alınacak YOLO ağırlığı (Örn: `yolov8n.pt`).
+* `agirlik`: Transfer öğrenimi için temel alınacak YOLO ağırlığı (Örn: `yolo12n.pt`). Menüden `9` ile değiştirilebilir.
 * `epoch_sayisi`: Eğitim döngüsü sayısı.
 * `batch_size`: Tek seferde donanıma yüklenecek resim boyutu (Optimum bellek kullanımı için `auto` önerilir).
 * `img_size`: Modele sokulacak görsellerin eğitim boyutu (Genellikle `640`).
@@ -81,20 +230,221 @@ Projenin tüm akışı `config.yaml` dosyası üzerinden parametrik olarak yöne
 
 ### Eğitim Hiperparametreleri (`egitim`)
 * `transfer_ogrenimi`: Sıfırdan mı yoksa hazır ağırlıklar (pretrained) üzerinden mi eğitileceği.
-* `lr0`, `lrf`, `momentum`, `weight_decay`, `warmup_epochs` vb.: Modelin ağırlık güncellemelerini ve öğrenme hızını ayarlayan YOLO mimarisi ince ayarları.
+* `optimizer`: Optimizer seçimi (`auto` = YOLO varsayılanı).
+* `lr0`: Başlangıç öğrenme oranı (initial learning rate).
+* `lrf`: Final öğrenme oranı faktörü (lr0 × lrf = son learning rate).
+* `momentum`: SGD momentum katsayısı.
+* `weight_decay`: Ağırlık azalımı (regularization).
+* `warmup_epochs`: Isınma (warmup) epoch sayısı.
+* `warmup_momentum`: Isınma momentum değeri.
+* `warmup_bias_lr`: Isınma bias öğrenme oranı.
 
 ### Çıkarım (Inference) Ayarları (`cikarim`)
 * `guven_eşigi`: Hasarın "tespit edilmiş" sayılması için modelin sağlaması gereken minimum güven (confidence) skoru (Örn: `%25` için `0.25`).
-* `iou_esigi`: Üst üste binen kutucukları (Non-Maximum Suppression) ayıklamak için Kesikşim/Bileşim (IoU) eşiği.
-* `cikti_klasoru`, `gorsel_kaydet`, `json_kaydet`: Çıkarım sonuçlarının (çizilmiş görsel ve JSON raporu) nasıl ve nereye kaydedileceği.
+* `iou_esigi`: Üst üste binen kutucukları (Non-Maximum Suppression) ayıklamak için Kesişim/Bileşim (IoU) eşiği.
+* `cikti_klasoru`: Çıkarım sonuçlarının kaydedileceği klasör.
+* `gorsel_kaydet`: Tespit sonuçlarının işaretli görsel olarak kaydedilip kaydedilmeyeceği (`true` / `false`).
+* `json_kaydet`: Tespit sonuçlarının JSON raporu olarak kaydedilip kaydedilmeyeceği (`true` / `false`).
 
 ### Sınıflar (`siniflar`)
-Eğitilecek ve tespit edilecek hasar kategorilerinin ID karşılıkları (Örn: `0: Cizik`, `1: Gocuk`, vb.).
+Eğitilecek ve tespit edilecek hasar kategorilerinin ID karşılıkları:
 
-## Kullanım
+| ID | Sınıf Adı |
+|---|---|
+| 0 | Çizik |
+| 1 | Göçük |
+| 2 | Cam Kırığı |
+| 3 | Pas |
+| 4 | Kuş Pisliği |
 
-Sistemi başlatmak için terminalinizde aşağıdaki komutu çalıştırmanız yeterlidir:
-```bash
-python main.py
+---
+
+## Veri Seti Formatı
+
+### Görseller
+Desteklenen formatlar: `.jpg`, `.jpeg`, `.png`, `.bmp`, `.webp`, `.tiff`
+
+Görseller `hasar-ornek/` klasörüne yerleştirilmelidir. Her görselin yanında **aynı isimli** bir `.txt` etiket dosyası bulunmalıdır.
+
+### YOLO Etiket Formatı
+Her `.txt` dosyası, görseldeki her nesne için bir satır içerir:
+
 ```
-Açılan menü üzerinden donanımınızı test edebilir, veri setinizi oluşturup bölebilir, modeli eğitebilir ve hasar tespitine başlayabilirsiniz. Tüm testleri (modül stabilitesini) ana menüdeki `8` numaralı seçeneği kullanarak koşturabilirsiniz.
+<sınıf_id> <x_merkez> <y_merkez> <genişlik> <yükseklik>
+```
+
+- `sınıf_id`: Hasar sınıfının numarası (0-4)
+- `x_merkez`, `y_merkez`: Nesne merkezinin normalize koordinatları (0.0 - 1.0)
+- `genişlik`, `yükseklik`: Nesne boyutunun normalize değerleri (0.0 - 1.0)
+
+**Örnek `ornek_arac.txt`:**
+```
+0 0.5234 0.4120 0.1562 0.0891
+1 0.2015 0.6543 0.3120 0.2456
+```
+
+### Etiketleme Sonrası Dizin Yapısı
+```
+hasar-nespit/
+├── hasar-ornek/            # Ham görseller ve etiketler
+│   ├── arac1.jpg
+│   ├── arac1.txt
+│   ├── arac2.jpg
+│   ├── arac2.txt
+│   └── augmented/          # Artırılmış görseller (otomatik oluşur)
+├── data/                   # Bölünmüş veri seti (otomatik oluşur)
+│   ├── dataset.yaml        # YOLO veri seti yapılandırması
+│   ├── images/train/       # Eğitim görselleri
+│   ├── images/val/         # Doğrulama görselleri
+│   ├── labels/train/       # Eğitim etiketleri
+│   └── labels/val/         # Doğrulama etiketleri
+├── runs/                   # Eğitim ve çıkarım çıktıları
+│   ├── train/hades_egitim/ # Eğitim sonuçları, ağırlıklar, metrikler
+│   └── predict/            # Çıkarım sonuçları
+└── hasar-sonucu/           # Çıkarım çıktıları (işaretli görsel + JSON)
+```
+
+> **Not:** `runs/`, `data/images/`, `data/labels/`, `hasar-sonucu/` ve `*.pt`/`*.onnx` dosyaları `.gitignore` ile sürüm kontrolünden hariç tutulmuştur.
+
+---
+
+## Örnek Çıktılar
+
+### Tekli Çıkarım JSON Çıktısı (`hasar-sonucu/arac1_sonuc_1720000000.json`)
+
+```json
+{
+  "gorsel_yolu": "hasar-ornek/arac1.jpg",
+  "model_yolu": "runs/train/hades_egitim/weights/best.pt",
+  "gecen_sure_saniye": 0.234,
+  "toplam_tespit": 2,
+  "hasar_dagilimi": {
+    "Cizik": 1,
+    "Gocuk": 1
+  },
+  "tespitler": [
+    {
+      "sinif_id": 0,
+      "sinif_adi": "Cizik",
+      "guven": 0.8723,
+      "kutucuk": { "x1": 120, "y1": 80, "x2": 340, "y2": 210 }
+    },
+    {
+      "sinif_id": 1,
+      "sinif_adi": "Gocuk",
+      "guven": 0.9145,
+      "kutucuk": { "x1": 510, "y1": 300, "x2": 700, "y2": 450 }
+    }
+  ]
+}
+```
+
+### Toplu Tarama Genel Rapor (`hasar-sonucu/genel_rapor_1720000000.json`)
+
+```json
+{
+  "toplam_taranan_resim": 50,
+  "tespit_edilen_toplam_hasar": 120,
+  "hasar_tipleri_dagilimi": {
+    "Cizik": 45,
+    "Gocuk": 30,
+    "Cam Kirigi": 20,
+    "Pas": 15,
+    "Kus Pisligi": 10
+  },
+  "hasar_tipleri_oransal_dagilim": {
+    "Cizik": 37.5,
+    "Gocuk": 25.0,
+    "Cam Kirigi": 16.67,
+    "Pas": 12.5,
+    "Kus Pisligi": 8.33
+  },
+  "ortalama_guven_skoru": 0.8234,
+  "toplam_gecen_sure_saniye": 12.456,
+  "detayli_sonuclar": [...]
+}
+```
+
+---
+
+## Model Dışa Aktarımı
+
+Eğitilmiş modeli farklı donanımlar için optimize edilmiş formatlara dönüştürebilirsiniz:
+
+```bash
+# Otomatik: Donanıma en uygun formatı seçer
+python src/export.py optimize
+
+# Manuel format seçimi:
+python src/export.py onnx       # ONNX (evrensel)
+python src/export.py engine     # TensorRT (NVIDIA GPU)
+python src/export.py openvino   # OpenVINO (Intel CPU)
+```
+
+Sistem, donanım profilinize göre otomatik olarak:
+- **NVIDIA GPU** varsa → TensorRT (`.engine`)
+- **Intel CPU** (Windows) → OpenVINO
+- **Diğer durumlar** → ONNX
+
+Desteklenen formatlar: `onnx`, `engine` (TensorRT), `openvino`, `coreml`, `tflite`, `pb`, `torchscript`
+
+---
+
+## Testler
+
+Sistem testlerini iki şekilde çalıştırabilirsiniz:
+
+```bash
+# Yöntem 1: Ana menüden (önerilen)
+python main.py   # ardından [8] Sistem Testleri
+
+# Yöntem 2: Komut satırından
+python -m unittest discover -s testler -p "test_*.py"
+```
+
+Testler çalışırken geçici klasörler (`test_gecici`, `test_stres`, `test_artirim` vb.) oluşturulur ve testler tamamlandığında otomatik olarak temizlenir. Hiçbir orijinal verinize zarar gelmez.
+
+Detaylı test dokümantasyonu için: [`testler/README.md`](testler/README.md)
+
+---
+
+## Sık Karşılaşılan Sorunlar (Troubleshooting)
+
+### `KMP_DUPLICATE_LIB_OK` Hatası
+Windows'ta PyTorch ile OpenMP kütüphane çakışmasından kaynaklanır. Proje bu hatayı otomatik olarak bastırır (`os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"`). Eğer harici bir script yazıyorsanız, bu satırı en başa ekleyin.
+
+### `ModuleNotFoundError: No module named 'labelImg'`
+```bash
+pip install labelImg
+```
+Bazı sistemlerde `pyqt5` gerektirir: `pip install pyqt5`
+
+### Türkçe Karakterli Dosya Yolları
+Proje, `cv2.imdecode` + `np.fromfile` yöntemiyle Türkçe karakter içeren dosya yollarını sorunsuz okur. Ancak `labelImg` aracı Türkçe karakterli klasör adlarında sorun çıkarabilir — mümkünse düz ASCII karakterler kullanın.
+
+### GPU Bulunamadı / CUDA Hatası
+Sistem GPU bulamazsa otomatik olarak CPU'ya düşer. GPU'nuzu test etmek için:
+```bash
+python -c "import torch; print(torch.cuda.is_available())"
+```
+`False` dönüyorsa PyTorch'u CUDA destekli yeniden kurun (bkz. Kurulum bölümü).
+
+### Eğitim Başlamıyor / Veri Seti Hatası
+- `data/dataset.yaml` dosyasının oluştuğundan emin olun (önce menüden `4` Veri Bölme'yi çalıştırın)
+- `data/images/train/` klasöründe en az bir görsel ve karşılık gelen `data/labels/train/` etiketi olmalı
+- Etiketlenmemiş görseller (`augmented/` hariç) veri bölme sırasında atlanır
+
+### `pip install` Sırasında Bağımlılık Çakışması
+Sanal ortam (virtual environment) kullanmanızı öneririz:
+```bash
+python -m venv venv
+venv\Scripts\activate     # Windows
+source venv/bin/activate  # Linux/macOS
+pip install -r requirements.txt
+```
+
+---
+
+## Lisans
+
+Bu proje, Soft İş Çözümleri bünyesinde hazırlanmış bir staj projesidir. Tüm hakları saklıdır.

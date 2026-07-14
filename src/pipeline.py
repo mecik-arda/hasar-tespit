@@ -27,6 +27,11 @@ def yapilandirma_yukle():
         return yaml.safe_load(dosya)
 
 
+def yapilandirma_kaydet(yapilandirma):
+    with open(YAPILANDIRMA_YOLU, "w", encoding="utf-8") as dosya:
+        yaml.safe_dump(yapilandirma, dosya, sort_keys=False, default_flow_style=False, allow_unicode=True)
+
+
 def egitilmis_model_yolu_bul():
     egitim_klasoru = EGITIM_KOKU / "hades_egitim"
     en_iyi_agirlik = egitim_klasoru / "weights" / "best.pt"
@@ -36,6 +41,14 @@ def egitilmis_model_yolu_bul():
     son_agirlik = egitim_klasoru / "weights" / "last.pt"
     if son_agirlik.exists():
         return son_agirlik
+
+    yapilandirma = yapilandirma_yukle()
+    if "model" in yapilandirma and "agirlik" in yapilandirma["model"]:
+        varsayilan_model = yapilandirma["model"]["agirlik"]
+        model_yolu = PROJE_KOKU / varsayilan_model
+        if model_yolu.exists():
+            return model_yolu
+        return varsayilan_model
 
     return None
 
@@ -110,6 +123,10 @@ def hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=None, model=N
         import numpy as np
         gorsel_dizisi = np.fromfile(str(gorsel_yolu), dtype=np.uint8)
         okunan_gorsel = cv2.imdecode(gorsel_dizisi, cv2.IMREAD_COLOR)
+
+        if okunan_gorsel is None:
+            print(f"{Fore.RED}[-] Gorsel okunamadi veya formati desteklenmiyor: {gorsel_yolu}{Style.RESET_ALL}")
+            return None
 
         sonuclar = model.predict(
             source=okunan_gorsel,
@@ -192,8 +209,12 @@ def hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=None, model=N
     }
 
     if gorsel_kaydet:
-        cikti_gorsel_yolu = cikarim_klasoru / f"{gorsel_yolu.stem}_tespit_{zaman_damgasi}{gorsel_yolu.suffix}"
-        basari, buffer = cv2.imencode(gorsel_yolu.suffix, gorsel)
+        uzanti = gorsel_yolu.suffix.lower()
+        if uzanti not in ['.jpg', '.jpeg', '.png', '.bmp']:
+            uzanti = '.jpg'
+        
+        cikti_gorsel_yolu = cikarim_klasoru / f"{gorsel_yolu.stem}_tespit_{zaman_damgasi}{uzanti}"
+        basari, buffer = cv2.imencode(uzanti, gorsel)
         if basari:
             buffer.tofile(str(cikti_gorsel_yolu))
         print(f"{Fore.GREEN}[+] Isaretli gorsel kaydedildi: {cikti_gorsel_yolu}{Style.RESET_ALL}")

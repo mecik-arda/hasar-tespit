@@ -26,8 +26,10 @@ class TutarlilikTesti(unittest.TestCase):
         _, kodlanmis = cv2.imencode('.jpg', resim)
         kodlanmis.tofile(str(cls.gorsel_yolu))
         
-        cls.pt_yolu = PROJE_KOKU / "yolov8n.pt"
-        cls.onnx_yolu = PROJE_KOKU / "yolov8n.onnx"
+        config = pipeline.yapilandirma_yukle()
+        model_agirligi = config.get("model", {}).get("agirlik", "yolov12n.pt")
+        cls.pt_yolu = PROJE_KOKU / model_agirligi
+        cls.onnx_yolu = PROJE_KOKU / model_agirligi.replace(".pt", ".onnx")
         
         if cls.pt_yolu.exists() and not cls.onnx_yolu.exists():
             model = YOLO(str(cls.pt_yolu))

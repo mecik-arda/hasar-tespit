@@ -34,7 +34,9 @@ class StresTesti(unittest.TestCase):
 
     @patch("src.pipeline.egitilmis_model_yolu_bul")
     def test_es_zamanlilik(self, mock_model_yolu):
-        mock_model_yolu.return_value = PROJE_KOKU / "yolov8n.pt"
+        config = pipeline.yapilandirma_yukle()
+        model_agirligi = config.get("model", {}).get("agirlik", "yolov12n.pt")
+        mock_model_yolu.return_value = PROJE_KOKU / model_agirligi
         
         is_parcaciklari = []
         parcacik_sayisi = 5

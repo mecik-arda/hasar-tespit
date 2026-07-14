@@ -10,6 +10,8 @@ init()
 PROJE_KOKU = Path(__file__).parent
 sys.path.insert(0, str(PROJE_KOKU))
 
+SECILI_CIHAZ = None
+
 HADES_LOGO = r"""
   _   _    _    ____  _____ ____    ____   ____    _    _   _ _   _ _____ ____  
  | | | |  / \  |  _ \| ____/ ___|  / ___| / ___|  / \  | \ | | \ | | ____|  _ \ 
@@ -58,16 +60,22 @@ def menuyu_yazdir():
     print(f"  {Fore.WHITE}[8] {Fore.YELLOW}Sistem Testlerini Calistir{Style.RESET_ALL}")
     print(f"      Uygulamanin tum birim ve entegrasyon testlerini kosar.")
     print()
-    print(f"  {Fore.WHITE}[9] {Fore.RED}Cikis{Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}[9] {Fore.YELLOW}Model Ayarlari{Style.RESET_ALL}")
+    print(f"      YOLO model neslini ve zeka seviyesini yapilandirir.")
+    print()
+    print(f"  {Fore.WHITE}[0] {Fore.RED}Cikis{Style.RESET_ALL}")
     print(f"      Uygulamayi sonlandirir.")
     print()
     print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
 
 
 def donanim_kontrolu_calistir():
-    from src.hardware_check import donanim_ozeti_yazdir
+    global SECILI_CIHAZ
+    from src.hardware_check import donanim_ozeti_yazdir, cihaz_secimi_yap
     print()
-    donanim_ozeti_yazdir()
+    profil = donanim_ozeti_yazdir()
+    print()
+    SECILI_CIHAZ = cihaz_secimi_yap(profil)
     print()
 
 
@@ -93,10 +101,18 @@ def veri_bolme_calistir():
 
 
 def egitim_calistir():
+    global SECILI_CIHAZ
     from src.train import egitim_baslat
     print()
     print(f"{Fore.YELLOW}[*] Egitim parametreleri (Bos birakirsiniz varsayilan kullanilir):{Style.RESET_ALL}")
     print()
+
+    varsayilan_cihaz = "auto"
+    if SECILI_CIHAZ is not None:
+        varsayilan_cihaz = SECILI_CIHAZ.get("cihaz", "auto")
+        print(f"{Fore.GREEN}[+] Onceden secilen cihaz: {SECILI_CIHAZ.get('aciklama', varsayilan_cihaz)}{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}[+] Onceden secilen batch: {SECILI_CIHAZ.get('batch', 'auto')}{Style.RESET_ALL}")
+        print()
 
     epoch_girdi = input(f"{Fore.CYAN}    Epoch sayisi [Enter=varsayilan]: {Style.RESET_ALL}").strip()
     epoch_sayisi = None
@@ -125,10 +141,14 @@ def egitim_calistir():
         except ValueError:
             print(f"{Fore.RED}[-] Gecersiz img size. Varsayilan kullanilacak.{Style.RESET_ALL}")
 
-    cihaz_girdi = input(f"{Fore.CYAN}    Cihaz [Enter=auto]: {Style.RESET_ALL}").strip()
+    cihaz_girdi = input(f"{Fore.CYAN}    Cihaz [Enter={varsayilan_cihaz}]: {Style.RESET_ALL}").strip()
     cihaz = None
     if cihaz_girdi:
         cihaz = cihaz_girdi
+    elif SECILI_CIHAZ is not None:
+        cihaz = SECILI_CIHAZ.get("cihaz", None)
+        if batch_size is None:
+            batch_size = SECILI_CIHAZ.get("batch", None)
 
     print()
     egitim_baslat(epoch_sayisi=epoch_sayisi, batch_size=batch_size, cihaz=cihaz, img_size=img_size)
@@ -245,6 +265,62 @@ def rapor_calistir():
     print()
 
 
+def ayarlar_calistir():
+    from src.pipeline import yapilandirma_yukle, yapilandirma_kaydet
+    print()
+    print(f"{Fore.YELLOW}  [MODEL AYARLARI]{Style.RESET_ALL}")
+    print()
+    print(f"{Fore.CYAN}  1) YOLOv8{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}  2) YOLOv12{Style.RESET_ALL}")
+    print()
+    
+    surum_secim = input(f"{Fore.CYAN}  Model neslini secin [1-2]: {Style.RESET_ALL}").strip()
+    if surum_secim == "1":
+        on_ek = "yolov8"
+    elif surum_secim == "2":
+        on_ek = "yolo12"
+    else:
+        print(f"{Fore.RED}[-] Gecersiz secim. Iptal edildi.{Style.RESET_ALL}")
+        print()
+        return
+
+    print()
+    print(f"{Fore.YELLOW}  [ZEKA / BOYUT SEVIYESI]{Style.RESET_ALL}")
+    print(f"{Fore.WHITE}  1) Nano    (n) - En hizli, en dusuk mAP{Style.RESET_ALL}")
+    print(f"{Fore.WHITE}  2) Small   (s) - Hizli, idare eder mAP{Style.RESET_ALL}")
+    print(f"{Fore.WHITE}  3) Medium  (m) - Dengeli{Style.RESET_ALL}")
+    print(f"{Fore.WHITE}  4) Large   (l) - Yavas, yuksek mAP{Style.RESET_ALL}")
+    print(f"{Fore.WHITE}  5) X-Large (x) - En yavas, en akilli{Style.RESET_ALL}")
+    print()
+
+    boyut_secim = input(f"{Fore.CYAN}  Kapasite secin [1-5]: {Style.RESET_ALL}").strip()
+    boyutlar = {"1": "n", "2": "s", "3": "m", "4": "l", "5": "x"}
+    
+    if boyut_secim not in boyutlar:
+        print(f"{Fore.RED}[-] Gecersiz secim. Iptal edildi.{Style.RESET_ALL}")
+        print()
+        return
+
+    boyut_eki = boyutlar[boyut_secim]
+    yeni_agirlik = f"{on_ek}{boyut_eki}.pt"
+
+    config = yapilandirma_yukle()
+    if "model" not in config:
+        config["model"] = {}
+    
+    eski_agirlik = config["model"].get("agirlik", "yok")
+    if eski_agirlik == yeni_agirlik:
+        print(f"\n{Fore.YELLOW}[!] Model zaten {eski_agirlik} olarak ayarli.{Style.RESET_ALL}\n")
+        return
+
+    config["model"]["agirlik"] = yeni_agirlik
+    yapilandirma_kaydet(config)
+
+    print()
+    print(f"{Fore.GREEN}[+] Model agirligi guncellendi: {eski_agirlik} -> {yeni_agirlik}{Style.RESET_ALL}")
+    print()
+
+
 def testleri_calistir():
     import unittest
     print()
@@ -253,9 +329,9 @@ def testleri_calistir():
     test_paketi = unittest.defaultTestLoader.discover(str(test_dizini), pattern="test_*.py")
     sonuc = unittest.TextTestRunner(verbosity=2).run(test_paketi)
     if sonuc.wasSuccessful():
-        print(f"\n{Fore.GREEN}[+] Harika! Tum testler (17/17) basariyla gecti.{Style.RESET_ALL}")
+        print(f"\n{Fore.GREEN}[+] Harika! Tum testler ({sonuc.testsRun}/{sonuc.testsRun}) basariyla gecti.{Style.RESET_ALL}")
     else:
-        print(f"\n{Fore.RED}[-] Bazi testler basarisiz oldu. Lutfen yukaridaki loglari inceleyin.{Style.RESET_ALL}")
+        print(f"\n{Fore.RED}[-] Bazi testler basarisiz oldu ({sonuc.testsRun - len(sonuc.failures) - len(sonuc.errors)}/{sonuc.testsRun}). Lutfen yukaridaki loglari inceleyin.{Style.RESET_ALL}")
     print()
 
 
@@ -284,10 +360,12 @@ def menu_secimi_isle(secim):
     elif secim == "8":
         testleri_calistir()
     elif secim == "9":
+        ayarlar_calistir()
+    elif secim == "0":
         cikis_yap()
         return False
     else:
-        print(f"{Fore.RED}[-] Gecersiz secim! Lutfen 1-9 arasinda bir deger girin.{Style.RESET_ALL}")
+        print(f"{Fore.RED}[-] Gecersiz secim! Lutfen 0-9 arasinda bir deger girin.{Style.RESET_ALL}")
         print()
     return True
 
@@ -298,7 +376,7 @@ def ana_dongu():
         try:
             basligi_yazdir()
             menuyu_yazdir()
-            secim = input(f"\n{Fore.CYAN}  Seciminiz [1-9]: {Style.RESET_ALL}").strip()
+            secim = input(f"\n{Fore.CYAN}  Seciminiz [0-9]: {Style.RESET_ALL}").strip()
             calisiyor = menu_secimi_isle(secim)
             if calisiyor:
                 input(f"\n{Fore.YELLOW}  Devam etmek icin Enter'a basin...{Style.RESET_ALL}")

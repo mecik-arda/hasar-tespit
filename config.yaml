@@ -1,13 +1,11 @@
 proje:
-  ad: "HADES Hasar Tespiti"
-  surum: "1.0.0"
-
+  ad: HADES Hasar Tespiti
+  surum: 1.0.0
 veri:
-  etiket_klasoru: "hasar-ornek"
-  cikti_klasoru: "data"
+  etiket_klasoru: hasar-ornek
+  cikti_klasoru: data
   train_orani: 0.8
   val_orani: 0.2
-
 augmentation:
   aktif: true
   carpma_katsayisi: 3
@@ -18,17 +16,15 @@ augmentation:
   dikey_cevirme: false
   gauss_gurultu: true
   bulaniklastirma: true
-
 model:
-  agirlik: "yolov8n.pt"
+  agirlik: yolo12x.pt
   epoch_sayisi: 100
-  batch_size: "auto"
+  batch_size: auto
   img_size: 640
-  cihaz: "auto"
-
+  cihaz: auto
 egitim:
   transfer_ogrenimi: true
-  optimizer: "auto"
+  optimizer: auto
   lr0: 0.01
   lrf: 0.01
   momentum: 0.937
@@ -36,17 +32,15 @@ egitim:
   warmup_epochs: 3
   warmup_momentum: 0.8
   warmup_bias_lr: 0.1
-
 cikarim:
   guven_eşigi: 0.25
   iou_esigi: 0.7
-  cikti_klasoru: "runs/predict"
+  cikti_klasoru: runs/predict
   gorsel_kaydet: true
   json_kaydet: true
-
 siniflar:
-  0: "Cizik"
-  1: "Gocuk"
-  2: "Cam Kirigi"
-  3: "Pas"
-  4: "Kus Pisligi"
+  0: Cizik
+  1: Gocuk
+  2: Cam Kirigi
+  3: Pas
+  4: Kus Pisligi

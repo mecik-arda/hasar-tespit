@@ -24,7 +24,7 @@ def egitim_baslat(epoch_sayisi=None, batch_size=None, cihaz=None, img_size=None)
     model_ayari = yapilandirma.get("model", {})
     egitim_ayari = yapilandirma.get("egitim", {})
 
-    agirlik = model_ayari.get("agirlik", "yolov8n.pt")
+    agirlik = model_ayari.get("agirlik", "yolo12n.pt")
     hedef_epoch = epoch_sayisi or model_ayari.get("epoch_sayisi", 100)
     hedef_img_size = img_size or model_ayari.get("img_size", 640)
 
