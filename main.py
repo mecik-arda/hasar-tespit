@@ -66,6 +66,15 @@ def menuyu_yazdir():
     print(f"  {Fore.WHITE}[10] {Fore.YELLOW}Model Ayarlari{Style.RESET_ALL}")
     print(f"      Secili modelin neslini ve zeka seviyesini yapilandirir.")
     print()
+    print(f"  {Fore.WHITE}[11] {Fore.YELLOW}Gorsel Toplama{Style.RESET_ALL}")
+    print(f"      Google/Bing'den otomatik hasarli arac gorseli indirir.")
+    print()
+    print(f"  {Fore.WHITE}[12] {Fore.YELLOW}Veri Kalite Kontrolu{Style.RESET_ALL}")
+    print(f"      Gorselleri tarar, bozuk/uygunsuz olanlari tespit eder.")
+    print()
+    print(f"  {Fore.WHITE}[13] {Fore.YELLOW}Etiket Dogrulama{Style.RESET_ALL}")
+    print(f"      Etiketlerin format, sinir, overlap ve dagilim kontrolunu yapar.")
+    print()
     print(f"  {Fore.WHITE}[0] {Fore.RED}Cikis{Style.RESET_ALL}")
     print(f"      Uygulamayi sonlandirir.")
     print()
@@ -397,6 +406,36 @@ def ayarlar_calistir():
     print()
 
 
+def gorsel_toplama_calistir():
+    from src.data_tools import gorsel_indir
+    print()
+    print(f"{Fore.YELLOW}[*] Hasar siniflari icin otomatik gorsel toplanacak.{Style.RESET_ALL}")
+    adet_girdi = input(f"{Fore.CYAN}    Gorsel adedi [Enter=50]: {Style.RESET_ALL}").strip()
+    adet = 50
+    if adet_girdi:
+        try:
+            adet = int(adet_girdi)
+        except ValueError:
+            print(f"{Fore.RED}[-] Gecersiz sayi. Varsayilan (50) kullanilacak.{Style.RESET_ALL}")
+    print()
+    gorsel_indir(max_sayi=adet)
+    print()
+
+
+def kalite_kontrol_calistir():
+    from src.data_tools import veri_kalite_kontrolu
+    print()
+    veri_kalite_kontrolu()
+    print()
+
+
+def etiket_dogrulama_calistir():
+    from src.validator import etiket_validator_calistir
+    print()
+    etiket_validator_calistir()
+    print()
+
+
 def testleri_calistir():
     import unittest
     print()
@@ -439,11 +478,17 @@ def menu_secimi_isle(secim):
         model_secimi_calistir()
     elif secim == "10":
         ayarlar_calistir()
+    elif secim == "11":
+        gorsel_toplama_calistir()
+    elif secim == "12":
+        kalite_kontrol_calistir()
+    elif secim == "13":
+        etiket_dogrulama_calistir()
     elif secim == "0":
         cikis_yap()
         return False
     else:
-        print(f"{Fore.RED}[-] Gecersiz secim! Lutfen 0-10 arasinda bir deger girin.{Style.RESET_ALL}")
+        print(f"{Fore.RED}[-] Gecersiz secim! Lutfen 0-13 arasinda bir deger girin.{Style.RESET_ALL}")
         print()
     return True
 
@@ -454,7 +499,7 @@ def ana_dongu():
         try:
             basligi_yazdir()
             menuyu_yazdir()
-            secim = input(f"\n{Fore.CYAN}  Seciminiz [0-10]: {Style.RESET_ALL}").strip()
+            secim = input(f"\n{Fore.CYAN}  Seciminiz [0-13]: {Style.RESET_ALL}").strip()
             calisiyor = menu_secimi_isle(secim)
             if calisiyor:
                 input(f"\n{Fore.YELLOW}  Devam etmek icin Enter'a basin...{Style.RESET_ALL}")

@@ -6,6 +6,12 @@ veri:
   cikti_klasoru: data
   train_orani: 0.8
   val_orani: 0.2
+  arama_terimleri:
+    Cizik: araba cizik hasar
+    Gocuk: araba gocuk hasar
+    Cam Kirigi: kirik araba cami
+    Pas: araba pas hasar
+    Kus Pisligi: araba kus pisligi
 augmentation:
   aktif: true
   carpma_katsayisi: 3

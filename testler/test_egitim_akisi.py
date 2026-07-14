@@ -7,6 +7,7 @@ import yaml
 import cv2
 import numpy as np
 from pathlib import Path
+from unittest.mock import patch
 
 PROJE_KOKU = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJE_KOKU))
@@ -55,17 +56,22 @@ class EgitimAkisiTesti(unittest.TestCase):
         if self.gecici_klasor.exists():
             shutil.rmtree(self.gecici_klasor)
 
-    def test_egitim_dongusu_ve_agirlik_olusumu(self):
+    @patch("src.train.yapilandirma_yukle")
+    def test_egitim_dongusu_ve_agirlik_olusumu(self, mock_yapi):
+        mock_yapi.return_value = {
+            "model": {"tur": "yolo", "agirlik": "yolov8n.pt", "epoch_sayisi": 1, "batch_size": 1, "img_size": 640, "cihaz": "cpu"},
+            "egitim": {"transfer_ogrenimi": True, "optimizer": "auto", "lr0": 0.01, "lrf": 0.01, "momentum": 0.937, "weight_decay": 0.0005, "warmup_epochs": 3, "warmup_momentum": 0.8, "warmup_bias_lr": 0.1},
+        }
         eski_veri_koku = train.VERI_KOKU
         eski_egitim_koku = train.EGITIM_KOKU
-        
+
         train.VERI_KOKU = self.veri_koku
         train.EGITIM_KOKU = self.egitim_koku
-        
+
         try:
             sonuc = train.egitim_baslat(epoch_sayisi=1, batch_size=1, cihaz="cpu")
             self.assertTrue(sonuc)
-            
+
             beklenen_agirlik = self.egitim_koku / "hades_egitim" / "weights" / "best.pt"
             self.assertTrue(beklenen_agirlik.exists())
         finally:

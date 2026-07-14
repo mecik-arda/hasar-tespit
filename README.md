@@ -33,6 +33,7 @@ Projede kullanılan başlıca paketler (`requirements.txt`):
 | `psutil` / `py-cpuinfo` | Donanım kaynak takibi |
 | `pyyaml` | YAML yapılandırma dosyası okuma/yazma |
 | `colorama` | Renkli terminal çıktısı |
+| `icrawler` | Google/Bing'den otomatik görsel indirme |
 
 ---
 
@@ -147,6 +148,20 @@ Eğitilmiş model üzerinden çıkarım (inference) işlemlerini yürütür. YOL
 * `hasar_tespiti_yap()`: Verilen tekil bir görüntüyü modele sokarak tespit edilen hasar koordinatlarını (bounding box) çizer ve sonuçları JSON + işaretli görsel olarak kaydeder.
 * `toplu_hasar_tespiti_yap()`: **`hasar-ornek`** klasöründeki fotoğrafları topluca okuyup otomatik işler ve etiketlenmiş sonuçları tek bir genel JSON raporu eşliğinde **`hasar-sonucu`** klasörüne yazar.
 
+### `src/validator.py`
+Etiketleme sonrası kalite kontrol ve tutarlılık denetimi yapar. 7 aşamalı otomatik kontrol:
+* `etiket_format_kontrolu()`: Her `.txt` satırında tam 5 YOLO değeri var mı?
+* `etiket_sinir_kontrolu()`: Tüm koordinatlar 0.0-1.0 aralığında mı?
+* `etiket_sinif_kontrolu()`: Sınıf ID'leri geçerli aralıkta mı?
+* `etiket_boyut_kontrolu()`: Bounding box'lar çok küçük (<%1) veya çok büyük (>%95) değil mi?
+* `etiket_overlap_kontrolu()`: Aynı görselde kutular %80'den fazla örtüşüyor mu? (çift etiket)
+* `etiket_eslesme_kontrolu()`: Her görselin etiketi, her etiketin görseli var mı?
+* `etiket_dagilim_raporu()`: Sınıf başına etiket sayısı ve dağılım grafiği.
+* `etiket_validator_calistir()`: Tüm kontrolleri sırayla çalıştıran ana fonksiyon.
+
+### `notebooks/`
+* `hades_colab_egitim.ipynb`: Google Colab üzerinde T4 GPU ile model eğitimi için hazır notebook. YOLO/RT-DETR seçimi, Drive entegrasyonu ve eğitimli model indirme içerir.
+
 ### `src/export.py`
 Eğitilmiş modeli donanıma özel optimize formatlara dönüştürür:
 * `model_dışa_aktar()`: Belirtilen formatta (ONNX, TensorRT, OpenVINO, CoreML, TFLite) dışa aktarım yapar.
@@ -155,15 +170,17 @@ Eğitilmiş modeli donanıma özel optimize formatlara dönüştürür:
 > **Not:** Model dışa aktarımı şu an yalnızca komut satırından çalışır: `python src/export.py optimize`
 
 ### `testler/` Klasörü
-Projenin sınırlarını ve hata yönetimini doğrulayan 10 adet unittest modülünü barındırır (toplam 20 test):
-* `test_donanim.py` — CPU/RAM/GPU/NPU profil yapısı, değer doğrulaması ve cihaz seçimi
-* `test_veri_araclari.py` — config.yaml bütünlüğü ve sınıf sayısı kontrolü
+Projenin sınırlarını ve hata yönetimini doğrulayan 12 adet unittest modülünü barındırır (toplam 46 test):
+* `test_donanim.py` — CPU/RAM/GPU/NPU profil yapısı, GPU Entegre/Harici ayrımı, GPU 0-indeks formatı, cihaz seçimi (10 test)
+* `test_veri_araclari.py` — config.yaml bütünlüğü, model.tur geçerliliği ve sınıf sayısı kontrolü (3 test)
+* `test_menu.py` — Menü 0-13 aralığı, model seçimi (YOLO/RT-DETR), model ayarları (8 test)
+* `test_validator.py` — Etiket format, sınır, sınıf ID, boyut, overlap, eşleşme ve dağılım kontrolleri (14 test)
 * `test_performans.py` — Model optimizasyon süresi ve başarı durumu
 * `test_dayaniklilik.py` — Karanlık ve gürültülü görsellerde kararlılık
 * `test_gecersiz_girdi.py` — Boş, sahte ve olmayan dosyalarda hata yönetimi
 * `test_egitim_akisi.py` — Sanal verilerle eğitim döngüsü ve ağırlık oluşumu
 * `test_veri_artirimi_dagilimi.py` — Bounding box koordinat sınır kontrolü (0.0-1.0)
-* `test_cikarim_tutarliligi.py` — PyTorch ve ONNX formatları arası çıkarım tutarlılığı
+* `test_cikarim_tutarliligi.py` — PyTorch/RT-DETR ve ONNX formatları arası çıkarım tutarlılığı
 * `test_yuk_ve_es_zamanlilik.py` — Çoklu iş parçacığı (multithreading) stres testi
 * `test_limitler.py` — Negatif ve geçersiz konfigürasyon girdilerinde varsayılana dönüş
 
@@ -188,9 +205,12 @@ Açılan menüden aşağıdaki işlemleri sırasıyla yapabilirsiniz. **Önerile
 | `5` | Model Eğitimi | Transfer öğrenimi ile seçili modelin (YOLO/RT-DETR) eğitimini başlatır |
 | `6` | Hasar Tespiti | Tekil veya toplu görselde hasar tespiti yapar |
 | `7` | Eğitim Raporu | Son eğitimin mAP, precision, recall metriklerini gösterir |
-| `8` | Sistem Testleri | Tüm birim ve entegrasyon testlerini koşturur (test sayısı dinamik) |
+| `8` | Sistem Testleri | Tüm birim ve entegrasyon testlerini koşturur (46 test) |
 | `9` | Model Seçimi | YOLO veya RT-DETR model mimarisini seçer |
 | `10` | Model Ayarları | Seçili modelin neslini ve boyutunu yapılandırır |
+| `11` | Görsel Toplama | Google/Bing'den her sınıf için otomatik hasarlı araç görseli indirir |
+| `12` | Veri Kalite Kontrolü | Görselleri tarar, bozuk/düşük çözünürlük/şüpheli olanları tespit eder |
+| `13` | Etiket Doğrulama | 7 aşamalı etiket kontrolü: format, sınır, overlap, dağılım |
 | `0` | Çıkış | Uygulamayı sonlandırır |
 
 ### Eğitim Sırasında Parametre Girme
@@ -213,6 +233,7 @@ Projenin tüm akışı `config.yaml` dosyası üzerinden parametrik olarak yöne
 * `etiket_klasoru`: Etiketlenecek ve işlenecek ham görsellerin bulunduğu klasör (Örn: `hasar-ornek`).
 * `cikti_klasoru`: Eğitim (train) ve doğrulama (val) olarak bölünen veri setinin kaydedildiği klasör (Örn: `data`).
 * `train_orani` / `val_orani`: Veri setinin bölünme yüzdeleri (Örn: `0.8` eğitim, `0.2` doğrulama).
+* `arama_terimleri`: Görsel toplama botu için her sınıfa özel Google arama sorguları (Örn: `Cizik: araba cizik hasar`).
 
 ### Veri Artırımı (`augmentation`)
 * `aktif`: Artırım modülünün çalışıp çalışmayacağı (`true` / `false`).

@@ -22,5 +22,12 @@ class VeriAraclariTesti(unittest.TestCase):
         siniflar = yapilandirma["siniflar"]
         self.assertEqual(len(siniflar), 5)
 
+    def test_model_tur_gecerliligi(self):
+        yapilandirma = yapilandirma_yukle()
+        model = yapilandirma.get("model", {})
+        self.assertIn("tur", model)
+        self.assertIn(model["tur"], ["yolo", "rtdetr"])
+        self.assertIn("agirlik", model)
+
 if __name__ == "__main__":
     unittest.main()

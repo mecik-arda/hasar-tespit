@@ -3,11 +3,17 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+from io import StringIO
 
 PROJE_KOKU = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJE_KOKU))
 
-from src.hardware_check import donanim_profili_olustur, npu_bilgisi_al, tum_gpu_bilgisi_al
+from src.hardware_check import (
+    donanim_profili_olustur, npu_bilgisi_al, tum_gpu_bilgisi_al,
+    donanim_ozeti_yazdir, cihaz_secimi_yap,
+)
+
 
 class DonanimTesti(unittest.TestCase):
     def test_donanim_profili_yapisi(self):
@@ -40,13 +46,42 @@ class DonanimTesti(unittest.TestCase):
         gpu = tum_gpu_bilgisi_al()
         self.assertIsInstance(gpu, list)
 
-    def test_cihaz_secimi_yapisi(self):
-        from src.hardware_check import cihaz_secimi_yap
+    def test_gpu_tip_alani(self):
         profil = donanim_profili_olustur()
-        # Kullanıcı etkileşimi olmadan test edemeyiz,
-        # ancak profil ile çağrılabilir olduğunu doğrula
-        self.assertIsNotNone(profil)
-        self.assertIn("cpu", profil)
+        for gpu in profil.get("tum_gpu", []):
+            self.assertIn("tip", gpu)
+            self.assertIn(gpu["tip"], ["Entegre", "Harici"])
+
+    def test_gpu_sifir_indeksli_format(self):
+        profil = donanim_profili_olustur()
+        for i, gpu in enumerate(profil.get("tum_gpu", [])):
+            self.assertEqual(i, profil["tum_gpu"].index(gpu))
+
+    @patch("sys.stdout", new_callable=StringIO)
+    def test_donanim_ozeti_gpu_format(self, mock_stdout):
+        profil = donanim_ozeti_yazdir()
+        cikti = mock_stdout.getvalue()
+        if profil.get("tum_gpu"):
+            self.assertIn("GPU 0", cikti)
+
+    @patch("builtins.input", return_value="")
+    def test_cihaz_secimi_varsayilan_cpu(self, mock_input):
+        profil = donanim_profili_olustur()
+        secim = cihaz_secimi_yap(profil)
+        self.assertIsNotNone(secim)
+        self.assertIn("cihaz", secim)
+        self.assertIn("batch", secim)
+        self.assertIn("aciklama", secim)
+        self.assertEqual(secim["cihaz"], "cpu")
+
+    @patch("builtins.input", return_value="1")
+    def test_cihaz_secimi_ilk_secenek(self, mock_input):
+        profil = donanim_profili_olustur()
+        secim = cihaz_secimi_yap(profil)
+        self.assertIsNotNone(secim)
+        self.assertIn("cihaz", secim)
+        self.assertGreaterEqual(secim["batch"], 4)
+
 
 if __name__ == "__main__":
     unittest.main()

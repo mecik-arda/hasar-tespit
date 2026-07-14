@@ -7,7 +7,6 @@ import cv2
 import numpy as np
 from pathlib import Path
 from unittest.mock import patch
-from ultralytics import YOLO
 
 PROJE_KOKU = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJE_KOKU))
@@ -28,11 +27,17 @@ class TutarlilikTesti(unittest.TestCase):
         
         config = pipeline.yapilandirma_yukle()
         model_agirligi = config.get("model", {}).get("agirlik", "yolov12n.pt")
+        model_tur = config.get("model", {}).get("tur", "yolo")
         cls.pt_yolu = PROJE_KOKU / model_agirligi
         cls.onnx_yolu = PROJE_KOKU / model_agirligi.replace(".pt", ".onnx")
-        
+
+        if model_tur == "rtdetr":
+            from ultralytics import RTDETR as ModelSinifi
+        else:
+            from ultralytics import YOLO as ModelSinifi
+
         if cls.pt_yolu.exists() and not cls.onnx_yolu.exists():
-            model = YOLO(str(cls.pt_yolu))
+            model = ModelSinifi(str(cls.pt_yolu))
             model.export(format="onnx")
 
     @classmethod

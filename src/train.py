@@ -85,12 +85,8 @@ def egitim_baslat(epoch_sayisi=None, batch_size=None, cihaz=None, img_size=None)
         model = ModelSinifi(agirlik)
     except Exception as hata:
         print(f"{Fore.RED}[-] Model yuklenemedi: {hata}{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}[*] Agirliklar otomatik indirilmeye calisiliyor...{Style.RESET_ALL}")
-        try:
-            model = ModelSinifi(agirlik)
-        except Exception as hata2:
-            print(f"{Fore.RED}[-] Model yukleme basarisiz: {hata2}{Style.RESET_ALL}")
-            return False
+        print(f"{Fore.YELLOW}[*] Internet baglantinizi ve model adini kontrol edin.{Style.RESET_ALL}")
+        return False
 
     optimizer = egitim_ayari.get("optimizer", "auto")
     lr0 = egitim_ayari.get("lr0", 0.01)

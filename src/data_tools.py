@@ -33,6 +33,17 @@ def etiketleme_baslat():
         for anahtar in sorted(siniflar.keys()):
             dosya.write(f"{siniflar[anahtar]}\n")
 
+    try:
+        import labelImg as labelimg_pkg
+        pkg_klasoru = Path(labelimg_pkg.__path__[0])
+        predefined_dosyasi = pkg_klasoru / "data" / "predefined_classes.txt"
+        if predefined_dosyasi.exists():
+            with open(predefined_dosyasi, "w", encoding="utf-8") as f:
+                f.write("")
+            print(f"{Fore.GREEN}[+] LabelImg on tanimli siniflari temizlendi.{Style.RESET_ALL}")
+    except Exception:
+        pass
+
     print(f"{Fore.BLUE}[*] LabelImg baslatiliyor...{Style.RESET_ALL}")
     print(f"{Fore.WHITE}    Klasor : {etiket_klasoru}{Style.RESET_ALL}")
     print(f"{Fore.WHITE}    Siniflar: {sinif_dosyasi}{Style.RESET_ALL}")
@@ -277,10 +288,167 @@ def veri_bol():
         if etiket_yolu.exists():
             shutil.move(str(etiket_yolu), str(val_etiket_klasoru / etiket_yolu.name))
 
+    dataset_yaml_yolu = veri_klasoru / "dataset.yaml"
+    siniflar = yapilandirma.get("siniflar", {})
+    yaml_icerik = {
+        "path": str(veri_klasoru.absolute()),
+        "train": "images/train",
+        "val": "images/val",
+        "nc": len(siniflar),
+        "names": {int(k): v for k, v in siniflar.items()},
+    }
+    import yaml as yaml_mod
+    with open(dataset_yaml_yolu, "w", encoding="utf-8") as dosya:
+        yaml_mod.dump(yaml_icerik, dosya, sort_keys=False, default_flow_style=False, allow_unicode=True)
+
     print(f"{Fore.GREEN}[+] Veri bolme tamamlandi.{Style.RESET_ALL}")
     print(f"{Fore.WHITE}    Train klasoru: {train_gorsel_klasoru}{Style.RESET_ALL}")
     print(f"{Fore.WHITE}    Val klasoru  : {val_gorsel_klasoru}{Style.RESET_ALL}")
+    print(f"{Fore.WHITE}    Dataset YAML : {dataset_yaml_yolu}{Style.RESET_ALL}")
     return True
+
+
+def veri_kalite_kontrolu(klasor=None):
+    hashlib_modulu = __import__("hashlib")
+
+    if klasor is None:
+        yapilandirma = yapilandirma_yukle()
+        klasor = PROJE_KOKU / yapilandirma["veri"]["etiket_klasoru"]
+
+    klasor = Path(klasor)
+    if not klasor.exists():
+        print(f"{Fore.RED}[-] Klasor bulunamadi: {klasor}{Style.RESET_ALL}")
+        return None
+
+    gorsel_uzantilari = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff"}
+    gorseller = sorted([f for f in klasor.iterdir() if f.suffix.lower() in gorsel_uzantilari])
+
+    print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}  HADES DETECTOR - Veri Kalite Kontrolu{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
+    print()
+    print(f"{Fore.YELLOW}[*] Kontrol edilen klasor: {klasor}{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}[*] Toplam gorsel: {len(gorseller)}{Style.RESET_ALL}")
+    print()
+
+    bozuk = []
+    dusuk_cozunurluk = []
+    supheli = []
+    saglam = []
+    gorulen_hashler = {}
+
+    for i, gorsel_yolu in enumerate(gorseller, 1):
+        if i % 20 == 0 or i == len(gorseller):
+            print(f"{Fore.BLUE}[*] ({i}/{len(gorseller)}) Isleniyor...{Style.RESET_ALL}")
+
+        dosya_boyutu = gorsel_yolu.stat().st_size
+        if dosya_boyutu < 1024:
+            bozuk.append({"dosya": gorsel_yolu.name, "sebep": f"Dosya cok kucuk: {dosya_boyutu} byte"})
+            continue
+
+        gorsel = cv2.imread(str(gorsel_yolu))
+        if gorsel is None:
+            bozuk.append({"dosya": gorsel_yolu.name, "sebep": "cv2.imread None dondu (bozuk dosya)"})
+            continue
+
+        yukseklik, genislik = gorsel.shape[:2]
+        if genislik < 100 or yukseklik < 100:
+            dusuk_cozunurluk.append({"dosya": gorsel_yolu.name, "sebep": f"Cozunurluk: {genislik}x{yukseklik}"})
+            continue
+
+        piksel_std = gorsel.std()
+        if piksel_std < 5:
+            supheli.append({"dosya": gorsel_yolu.name, "sebep": f"Tekduze gorsel (std={piksel_std:.1f})"})
+            continue
+
+        with open(gorsel_yolu, "rb") as f:
+            dosya_hash = hashlib_modulu.md5(f.read()).hexdigest()
+        if dosya_hash in gorulen_hashler:
+            supheli.append({
+                "dosya": gorsel_yolu.name,
+                "sebep": f"Yinelenen gorsel (ayni: {gorulen_hashler[dosya_hash]})",
+            })
+            continue
+        gorulen_hashler[dosya_hash] = gorsel_yolu.name
+
+        saglam.append(gorsel_yolu.name)
+
+    print()
+    print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}[+] Saglam: {len(saglam)} gorsel{Style.RESET_ALL}")
+    print(f"{Fore.RED}[-] Bozuk: {len(bozuk)} gorsel{Style.RESET_ALL}")
+    for b in bozuk:
+        print(f"    {Fore.WHITE}{b['dosya']} -> {b['sebep']}{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}[!] Dusuk cozunurluk: {len(dusuk_cozunurluk)} gorsel{Style.RESET_ALL}")
+    for d in dusuk_cozunurluk:
+        print(f"    {Fore.WHITE}{d['dosya']} -> {d['sebep']}{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}[?] Supheli: {len(supheli)} gorsel{Style.RESET_ALL}")
+    for s in supheli:
+        print(f"    {Fore.WHITE}{s['dosya']} -> {s['sebep']}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
+
+    return {"saglam": saglam, "bozuk": bozuk, "dusuk_cozunurluk": dusuk_cozunurluk, "supheli": supheli}
+
+
+def gorsel_indir(sinif_adi=None, max_sayi=50, hedef_klasor=None):
+    try:
+        from icrawler.builtin import GoogleImageCrawler
+    except ImportError:
+        print(f"{Fore.RED}[-] icrawler yuklu degil. 'pip install icrawler' ile yukleyin.{Style.RESET_ALL}")
+        return None
+
+    yapilandirma = yapilandirma_yukle()
+    siniflar = yapilandirma.get("siniflar", {})
+
+    if sinif_adi is None:
+        arama_terimleri = yapilandirma.get("veri", {}).get("arama_terimleri", {})
+        if not arama_terimleri:
+            arama_terimleri = {ad: f"araba {ad.lower()}" for ad in siniflar.values()}
+    else:
+        arama_terimleri = {sinif_adi: sinif_adi}
+
+    if hedef_klasor is None:
+        etiket_klasoru = PROJE_KOKU / yapilandirma["veri"]["etiket_klasoru"]
+    else:
+        etiket_klasoru = Path(hedef_klasor)
+
+    etiket_klasoru.mkdir(parents=True, exist_ok=True)
+
+    print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}  HADES DETECTOR - Otomatik Gorsel Toplama{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
+    print()
+    print(f"{Fore.YELLOW}[*] Hedef klasor: {etiket_klasoru}{Style.RESET_ALL}")
+    print()
+
+    toplam_indirilen = 0
+    for ad, sorgu in arama_terimleri.items():
+        sinif_klasoru = etiket_klasoru / ad.replace(" ", "_")
+        sinif_klasoru.mkdir(parents=True, exist_ok=True)
+
+        print(f"{Fore.BLUE}[*] '{sorgu}' araniyor (hedef: {max_sayi} gorsel)...{Style.RESET_ALL}")
+        try:
+            crawler = GoogleImageCrawler(
+                storage={"root_dir": str(sinif_klasoru)},
+                downloader_threads=4,
+            )
+            crawler.crawl(
+                keyword=sorgu,
+                max_num=max_sayi,
+                filters={"type": "photo", "size": "large"},
+            )
+            indirilen = len(list(sinif_klasoru.glob("*")))
+            toplam_indirilen += indirilen
+            print(f"    {Fore.GREEN}[+] '{ad}': {indirilen} gorsel indirildi -> {sinif_klasoru.name}{Style.RESET_ALL}")
+        except Exception as hata:
+            print(f"    {Fore.RED}[-] '{ad}' indirilirken hata: {hata}{Style.RESET_ALL}")
+
+    print()
+    print(f"{Fore.GREEN}[+] Toplam {toplam_indirilen} gorsel indirildi.{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}[!] Indirilen gorselleri etiketlemeden once kalite kontrolu yapmaniz onerilir (Menu 12).{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
+
+    return toplam_indirilen
 
 
 if __name__ == "__main__":
@@ -291,5 +459,9 @@ if __name__ == "__main__":
         augmentation_uygula()
     elif secim == "bol":
         veri_bol()
+    elif secim == "kalite":
+        veri_kalite_kontrolu()
+    elif secim == "indir":
+        gorsel_indir()
     else:
-        print(f"{Fore.YELLOW}Kullanim: python data_tools.py [etiketle|augment|bol]{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Kullanim: python data_tools.py [etiketle|augment|bol|kalite|indir]{Style.RESET_ALL}")
