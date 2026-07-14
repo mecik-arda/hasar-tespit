@@ -58,6 +58,39 @@ pip install -r requirements.txt
 
 *(Not: Model eğitiminde GPU/CUDA donanım hızlandırmasından tam yararlanabilmek için PyTorch kütüphanesinin sisteminize uygun CUDA sürümünü kurmanız önerilir.)*
 
+## Yapılandırma Parametreleri (`config.yaml`)
+
+Projenin tüm akışı `config.yaml` dosyası üzerinden parametrik olarak yönetilir. İlgili yapılandırma bölümleri ve anlamları şunlardır:
+
+### Veri Ayarları (`veri`)
+* `etiket_klasoru`: Etiketlenecek ve işlenecek ham görsellerin bulunduğu klasör (Örn: `hasar-ornek`).
+* `cikti_klasoru`: Eğitim (train) ve doğrulama (val) olarak bölünen veri setinin kaydedildiği klasör (Örn: `data`).
+* `train_orani` / `val_orani`: Veri setinin bölünme yüzdeleri (Örn: `0.8` eğitim, `0.2` doğrulama).
+
+### Veri Artırımı (`augmentation`)
+* `aktif`: Artırım modülünün çalışıp çalışmayacağı.
+* `carpma_katsayisi`: Etiketlenmiş her bir orijinal görselden kaç tane sanal (artırılmış) görsel üretileceği.
+* Diğer parametreler (`donderme_acisi`, `parlaklik_limit`, `gauss_gurultu`, `bulaniklastirma` vb.): Görüntü bozulmalarının ve varyasyonlarının sınır değerleri ve açma/kapatma (true/false) durumları.
+
+### Model Ayarları (`model`)
+* `agirlik`: Transfer öğrenimi için temel alınacak YOLO ağırlığı (Örn: `yolov8n.pt`).
+* `epoch_sayisi`: Eğitim döngüsü sayısı.
+* `batch_size`: Tek seferde donanıma yüklenecek resim boyutu (Optimum bellek kullanımı için `auto` önerilir).
+* `img_size`: Modele sokulacak görsellerin eğitim boyutu (Genellikle `640`).
+* `cihaz`: Eğitimin yapılacağı donanım (`auto`, `cuda` veya `cpu`).
+
+### Eğitim Hiperparametreleri (`egitim`)
+* `transfer_ogrenimi`: Sıfırdan mı yoksa hazır ağırlıklar (pretrained) üzerinden mi eğitileceği.
+* `lr0`, `lrf`, `momentum`, `weight_decay`, `warmup_epochs` vb.: Modelin ağırlık güncellemelerini ve öğrenme hızını ayarlayan YOLO mimarisi ince ayarları.
+
+### Çıkarım (Inference) Ayarları (`cikarim`)
+* `guven_eşigi`: Hasarın "tespit edilmiş" sayılması için modelin sağlaması gereken minimum güven (confidence) skoru (Örn: `%25` için `0.25`).
+* `iou_esigi`: Üst üste binen kutucukları (Non-Maximum Suppression) ayıklamak için Kesikşim/Bileşim (IoU) eşiği.
+* `cikti_klasoru`, `gorsel_kaydet`, `json_kaydet`: Çıkarım sonuçlarının (çizilmiş görsel ve JSON raporu) nasıl ve nereye kaydedileceği.
+
+### Sınıflar (`siniflar`)
+Eğitilecek ve tespit edilecek hasar kategorilerinin ID karşılıkları (Örn: `0: Cizik`, `1: Gocuk`, vb.).
+
 ## Kullanım
 
 Sistemi başlatmak için terminalinizde aşağıdaki komutu çalıştırmanız yeterlidir:
