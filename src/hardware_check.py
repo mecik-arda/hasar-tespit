@@ -76,38 +76,73 @@ def torch_cuda_bilgisi_al():
 
 
 def wmic_gpu_bilgisi_al(marka_filtreleri, tur_etiketi):
-    """Belirtilen marka filtrelerine uyan GPU'ları WMIC ile tespit eder."""
+    """Belirtilen marka filtrelerine uyan GPU'ları PowerShell ile tespit eder (WMIC fallback'li)."""
     if platform.system() != "Windows":
         return []
+    gpu_listesi = []
+    ham_cikti = None
+    powershell_formati = True
+
+    powershell_komutu = (
+        'Get-CimInstance Win32_VideoController | '
+        'Select-Object Name, AdapterRAM, DriverVersion | '
+        'ConvertTo-Csv -NoTypeInformation'
+    )
     try:
-        cikti = subprocess.check_output(
-            ["wmic", "path", "win32_VideoController", "get", "name,AdapterRAM,DriverVersion", "/format:csv"],
+        ham_cikti = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command", powershell_komutu],
             stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW,
         ).decode("utf-8", errors="ignore").strip()
-        gpu_listesi = []
-        satirlar = cikti.split("\n")
-        for satir in satirlar[1:]:
-            parcalar = satir.split(",")
-            if len(parcalar) >= 3:
-                ad = parcalar[2].strip() if len(parcalar) > 2 else ""
-                if ad and any(marka in ad for marka in marka_filtreleri):
-                    try:
-                        vram_mb = int(parcalar[1]) // (1024 * 1024) if parcalar[1].strip() else 0
-                    except (ValueError, IndexError):
-                        vram_mb = 0
-                    surucu = parcalar[3].strip() if len(parcalar) > 3 and parcalar[3].strip() else "Bilinmiyor"
-                    gpu_tipi = "Harici" if vram_mb > 0 else "Entegre"
-                    gpu_listesi.append({
-                        "ad": ad,
-                        "vram_mb": vram_mb,
-                        "surucu": surucu,
-                        "tur": tur_etiketi,
-                        "tip": gpu_tipi,
-                    })
-        return gpu_listesi
     except (subprocess.CalledProcessError, FileNotFoundError):
-        return []
+        pass
+
+    if not ham_cikti:
+        powershell_formati = False
+        try:
+            ham_cikti = subprocess.check_output(
+                ["wmic", "path", "win32_VideoController", "get", "name,AdapterRAM,DriverVersion", "/format:csv"],
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            ).decode("utf-8", errors="ignore").strip()
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return []
+
+    satirlar = ham_cikti.split("\n")
+    for satir in satirlar[1:]:
+        satir = satir.strip()
+        if not satir or satir.startswith("#TYPE"):
+            continue
+        parcalar = [p.strip().strip('"') for p in satir.split(",")]
+
+        if powershell_formati:
+            if len(parcalar) < 3:
+                continue
+            ad = parcalar[0]
+            vram_ham = parcalar[1]
+            surucu = parcalar[2]
+        else:
+            if len(parcalar) < 4:
+                continue
+            ad = parcalar[1]
+            vram_ham = parcalar[2]
+            surucu = parcalar[3] if len(parcalar) > 3 else ""
+
+        if ad and any(marka.lower() in ad.lower() for marka in marka_filtreleri):
+            try:
+                vram_mb = int(vram_ham) // (1024 * 1024) if vram_ham.strip() else 0
+            except (ValueError, IndexError):
+                vram_mb = 0
+            surucu = surucu if surucu else "Bilinmiyor"
+            gpu_tipi = "Harici" if vram_mb > 0 else "Entegre"
+            gpu_listesi.append({
+                "ad": ad,
+                "vram_mb": vram_mb,
+                "surucu": surucu,
+                "tur": tur_etiketi,
+                "tip": gpu_tipi,
+            })
+    return gpu_listesi
 
 
 def amd_gpu_bilgisi_al():
@@ -135,48 +170,102 @@ def npu_bilgisi_al():
         "Intel(R) AI Boost",
         "Intel AI Boost",
         "Neural Processing Unit",
-        "NPU",
         "Intel(R) Neural",
         "AMD IPU",
         "AMD Neural",
         "Qualcomm Neural",
-        "Hexagon",
+        "Qualcomm Hexagon",
     ]
 
+    npu_haric_kelimeleri = [
+        "Microsoft Input",
+        "HID",
+        "Keyboard",
+        "Mouse",
+        "Touchpad",
+        "Audio",
+        "Speaker",
+        "Camera",
+        "Bluetooth",
+        "Wi-Fi",
+        "Storage",
+        "Disk",
+        "Battery",
+        "ACPI",
+        "USB",
+    ]
+
+    ham_cikti = None
+    powershell_formati = True
+
+    where_kosulu = " -or ".join(
+        [f'$_.FriendlyName -like "*{k}*"' for k in npu_anahtar_kelimeleri]
+    )
+    powershell_komutu = (
+        f'Get-PnpDevice | Where-Object {{ {where_kosulu} }} | '
+        'Select-Object FriendlyName, Status | '
+        'ConvertTo-Csv -NoTypeInformation'
+    )
     try:
-        cikti = subprocess.check_output(
-            ["wmic", "path", "Win32_PnPEntity", "get", "Name,Status", "/format:csv"],
+        ham_cikti = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command", powershell_komutu],
             stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW,
         ).decode("utf-8", errors="ignore").strip()
-
-        gorulen = set()
-        satirlar = cikti.split("\n")
-        for satir in satirlar[1:]:
-            parcalar = satir.split(",")
-            if len(parcalar) >= 3:
-                ad = parcalar[2].strip() if len(parcalar) > 2 else ""
-                durum = parcalar[1].strip() if len(parcalar) > 1 else ""
-                if ad and ad not in gorulen:
-                    for anahtar in npu_anahtar_kelimeleri:
-                        if anahtar.lower() in ad.lower():
-                            gorulen.add(ad)
-                            if "intel" in ad.lower():
-                                tur = "Intel NPU"
-                            elif "amd" in ad.lower():
-                                tur = "AMD NPU"
-                            elif "qualcomm" in ad.lower() or "hexagon" in ad.lower():
-                                tur = "Qualcomm NPU"
-                            else:
-                                tur = "NPU"
-                            npu_listesi.append({
-                                "ad": ad,
-                                "durum": durum,
-                                "tur": tur,
-                            })
-                            break
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
+
+    if not ham_cikti:
+        powershell_formati = False
+        try:
+            ham_cikti = subprocess.check_output(
+                ["wmic", "path", "Win32_PnPEntity", "get", "Name,Status", "/format:csv"],
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            ).decode("utf-8", errors="ignore").strip()
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return npu_listesi
+
+    gorulen = set()
+    satirlar = ham_cikti.split("\n")
+    for satir in satirlar[1:]:
+        satir = satir.strip()
+        if not satir or satir.startswith("#TYPE"):
+            continue
+        parcalar = [p.strip().strip('"') for p in satir.split(",")]
+
+        if powershell_formati:
+            if len(parcalar) < 2:
+                continue
+            ad = parcalar[0]
+            durum = parcalar[1]
+        else:
+            if len(parcalar) < 3:
+                continue
+            ad = parcalar[2]
+            durum = parcalar[1]
+
+        if ad and ad not in gorulen:
+            haric_tut = any(haric.lower() in ad.lower() for haric in npu_haric_kelimeleri)
+            if haric_tut:
+                continue
+            for anahtar in npu_anahtar_kelimeleri:
+                if anahtar.lower() in ad.lower():
+                    gorulen.add(ad)
+                    if "intel" in ad.lower():
+                        tur = "Intel NPU"
+                    elif "amd" in ad.lower():
+                        tur = "AMD NPU"
+                    elif "qualcomm" in ad.lower() or "hexagon" in ad.lower():
+                        tur = "Qualcomm NPU"
+                    else:
+                        tur = "NPU"
+                    npu_listesi.append({
+                        "ad": ad,
+                        "durum": durum,
+                        "tur": tur,
+                    })
+                    break
 
     return npu_listesi
 
@@ -319,7 +408,7 @@ def donanim_ozeti_yazdir():
         print(f"{Fore.MAGENTA}[*] NPU (Yapay Zeka Islemsici) - {len(npu)} adet{Style.RESET_ALL}")
         for i, n in enumerate(npu):
             durum_icon = f"{Fore.GREEN}AKTIF{Style.RESET_ALL}" if "OK" in n.get("durum", "") else f"{Fore.YELLOW}BILINMIYOR{Style.RESET_ALL}"
-            print(f"    {Fore.WHITE}NPU {i + 1}        : {n['ad']}{Style.RESET_ALL}")
+            print(f"    {Fore.WHITE}NPU {i}        : {n['ad']}{Style.RESET_ALL}")
             print(f"    {Fore.WHITE}Tur            : {n['tur']}{Style.RESET_ALL}")
             print(f"    {Fore.WHITE}Durum          : {durum_icon}{Style.RESET_ALL}")
             print(f"    {Fore.YELLOW}Not            : NPU yalnizca cikarim (inference) icindir, egitimde kullanilmaz.{Style.RESET_ALL}")

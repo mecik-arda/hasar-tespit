@@ -37,7 +37,7 @@ def menuyu_yazdir():
     print(f"{Fore.YELLOW}  [ANA MENU]{Style.RESET_ALL}")
     print()
     print(f"  {Fore.WHITE}[1] {Fore.YELLOW}Donanim Kontrolu{Style.RESET_ALL}")
-    print(f"      Sistemdeki CPU/GPU kaynaklarini kontrol eder.")
+    print(f"      CPU/GPU/NPU kaynaklarini listeler, egitim cihazi secimi yapar.")
     print()
     print(f"  {Fore.WHITE}[2] {Fore.YELLOW}Veri Etiketleme{Style.RESET_ALL}")
     print(f"      hasar-ornek klasorunde LabelImg uygulamasini baslatir.")
@@ -60,8 +60,11 @@ def menuyu_yazdir():
     print(f"  {Fore.WHITE}[8] {Fore.YELLOW}Sistem Testlerini Calistir{Style.RESET_ALL}")
     print(f"      Uygulamanin tum birim ve entegrasyon testlerini kosar.")
     print()
-    print(f"  {Fore.WHITE}[9] {Fore.YELLOW}Model Ayarlari{Style.RESET_ALL}")
-    print(f"      YOLO model neslini ve zeka seviyesini yapilandirir.")
+    print(f"  {Fore.WHITE}[9] {Fore.YELLOW}Model Secimi{Style.RESET_ALL}")
+    print(f"      YOLO veya RT-DETR model mimarisini secer.")
+    print()
+    print(f"  {Fore.WHITE}[10] {Fore.YELLOW}Model Ayarlari{Style.RESET_ALL}")
+    print(f"      Secili modelin neslini ve zeka seviyesini yapilandirir.")
     print()
     print(f"  {Fore.WHITE}[0] {Fore.RED}Cikis{Style.RESET_ALL}")
     print(f"      Uygulamayi sonlandirir.")
@@ -265,49 +268,122 @@ def rapor_calistir():
     print()
 
 
-def ayarlar_calistir():
+def model_secimi_calistir():
     from src.pipeline import yapilandirma_yukle, yapilandirma_kaydet
-    print()
-    print(f"{Fore.YELLOW}  [MODEL AYARLARI]{Style.RESET_ALL}")
-    print()
-    print(f"{Fore.CYAN}  1) YOLOv8{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}  2) YOLOv12{Style.RESET_ALL}")
-    print()
-    
-    surum_secim = input(f"{Fore.CYAN}  Model neslini secin [1-2]: {Style.RESET_ALL}").strip()
-    if surum_secim == "1":
-        on_ek = "yolov8"
-    elif surum_secim == "2":
-        on_ek = "yolo12"
-    else:
-        print(f"{Fore.RED}[-] Gecersiz secim. Iptal edildi.{Style.RESET_ALL}")
-        print()
-        return
-
-    print()
-    print(f"{Fore.YELLOW}  [ZEKA / BOYUT SEVIYESI]{Style.RESET_ALL}")
-    print(f"{Fore.WHITE}  1) Nano    (n) - En hizli, en dusuk mAP{Style.RESET_ALL}")
-    print(f"{Fore.WHITE}  2) Small   (s) - Hizli, idare eder mAP{Style.RESET_ALL}")
-    print(f"{Fore.WHITE}  3) Medium  (m) - Dengeli{Style.RESET_ALL}")
-    print(f"{Fore.WHITE}  4) Large   (l) - Yavas, yuksek mAP{Style.RESET_ALL}")
-    print(f"{Fore.WHITE}  5) X-Large (x) - En yavas, en akilli{Style.RESET_ALL}")
-    print()
-
-    boyut_secim = input(f"{Fore.CYAN}  Kapasite secin [1-5]: {Style.RESET_ALL}").strip()
-    boyutlar = {"1": "n", "2": "s", "3": "m", "4": "l", "5": "x"}
-    
-    if boyut_secim not in boyutlar:
-        print(f"{Fore.RED}[-] Gecersiz secim. Iptal edildi.{Style.RESET_ALL}")
-        print()
-        return
-
-    boyut_eki = boyutlar[boyut_secim]
-    yeni_agirlik = f"{on_ek}{boyut_eki}.pt"
-
     config = yapilandirma_yukle()
+    mevcut_tur = config.get("model", {}).get("tur", "yolo")
+    mevcut_agirlik = config.get("model", {}).get("agirlik", "yok")
+
+    print()
+    print(f"{Fore.YELLOW}  [MODEL SECIMI]{Style.RESET_ALL}")
+    print()
+    print(f"  {Fore.WHITE}Mevcut Model: {Fore.GREEN}{mevcut_tur.upper()} ({mevcut_agirlik}){Style.RESET_ALL}")
+    print()
+    print(f"  {Fore.WHITE}[1] {Fore.YELLOW}YOLO{Style.RESET_ALL}")
+    print(f"      Klasik tek asamali nesne tespit modeli. Hizli ve verimli.")
+    print(f"      Mevcut surumler: YOLOv8, YOLOv12 (nano'dan x-large'a)")
+    print()
+    print(f"  {Fore.WHITE}[2] {Fore.CYAN}RT-DETR (Real-Time DEtection TRansformer){Style.RESET_ALL}")
+    print(f"      Gelistirici: Baidu")
+    print(f"      Transformer tabanli ilk gercek zamanli nesne tespit modeli.")
+    print(f"      NMS (Non-Maximum Suppression) adimina ihtiyac duymaz.")
+    print(f"      Benzer boyuttaki YOLO modellerine gore daha yuksek mAP sunar.")
+    print(f"      Ultralytics kutuphanesi tarafindan yerlesik desteklenir.")
+    print()
+    print(f"{Fore.CYAN}{'-' * 60}{Style.RESET_ALL}")
+
+    secim = input(f"{Fore.CYAN}  Model seciminiz [1-2, Enter=iptal]: {Style.RESET_ALL}").strip()
+
+    if secim == "1":
+        yeni_tur = "yolo"
+        varsayilan_agirlik = "yolo12n.pt"
+    elif secim == "2":
+        yeni_tur = "rtdetr"
+        varsayilan_agirlik = "rtdetr-l.pt"
+    else:
+        print(f"{Fore.RED}[-] Secim iptal edildi.{Style.RESET_ALL}")
+        print()
+        return
+
+    if mevcut_tur == yeni_tur:
+        print(f"\n{Fore.YELLOW}[!] Model zaten {yeni_tur.upper()} olarak ayarli.{Style.RESET_ALL}\n")
+        return
+
     if "model" not in config:
         config["model"] = {}
-    
+    config["model"]["tur"] = yeni_tur
+    config["model"]["agirlik"] = varsayilan_agirlik
+    yapilandirma_kaydet(config)
+
+    print()
+    print(f"{Fore.GREEN}[+] Model turu guncellendi: {mevcut_tur.upper()} -> {yeni_tur.upper()}{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}[+] Varsayilan agirlik atandi: {varsayilan_agirlik}{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}[!] Model boyutunu [10] Model Ayarlari'ndan degistirebilirsiniz.{Style.RESET_ALL}")
+    print()
+
+
+def ayarlar_calistir():
+    from src.pipeline import yapilandirma_yukle, yapilandirma_kaydet
+    config = yapilandirma_yukle()
+    model_tur = config.get("model", {}).get("tur", "yolo")
+
+    print()
+    if model_tur == "rtdetr":
+        print(f"{Fore.YELLOW}  [RT-DETR MODEL AYARLARI]{Style.RESET_ALL}")
+        print()
+        print(f"  {Fore.WHITE}[1] {Fore.YELLOW}Large  (l) - Dengeli, yuksek mAP{Style.RESET_ALL}")
+        print(f"  {Fore.WHITE}[2] {Fore.YELLOW}X-Large (x) - En akilli, en yavas{Style.RESET_ALL}")
+        print()
+        boyut_secim = input(f"{Fore.CYAN}  Kapasite secin [1-2]: {Style.RESET_ALL}").strip()
+        boyutlar = {"1": "l", "2": "x"}
+
+        if boyut_secim not in boyutlar:
+            print(f"{Fore.RED}[-] Gecersiz secim. Iptal edildi.{Style.RESET_ALL}")
+            print()
+            return
+
+        boyut_eki = boyutlar[boyut_secim]
+        yeni_agirlik = f"rtdetr-{boyut_eki}.pt"
+    else:
+        print(f"{Fore.YELLOW}  [YOLO MODEL AYARLARI]{Style.RESET_ALL}")
+        print()
+        print(f"{Fore.CYAN}  1) YOLOv8{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}  2) YOLOv12{Style.RESET_ALL}")
+        print()
+
+        surum_secim = input(f"{Fore.CYAN}  Model neslini secin [1-2]: {Style.RESET_ALL}").strip()
+        if surum_secim == "1":
+            on_ek = "yolov8"
+        elif surum_secim == "2":
+            on_ek = "yolo12"
+        else:
+            print(f"{Fore.RED}[-] Gecersiz secim. Iptal edildi.{Style.RESET_ALL}")
+            print()
+            return
+
+        print()
+        print(f"{Fore.YELLOW}  [ZEKA / BOYUT SEVIYESI]{Style.RESET_ALL}")
+        print(f"{Fore.WHITE}  1) Nano    (n) - En hizli, en dusuk mAP{Style.RESET_ALL}")
+        print(f"{Fore.WHITE}  2) Small   (s) - Hizli, idare eder mAP{Style.RESET_ALL}")
+        print(f"{Fore.WHITE}  3) Medium  (m) - Dengeli{Style.RESET_ALL}")
+        print(f"{Fore.WHITE}  4) Large   (l) - Yavas, yuksek mAP{Style.RESET_ALL}")
+        print(f"{Fore.WHITE}  5) X-Large (x) - En yavas, en akilli{Style.RESET_ALL}")
+        print()
+
+        boyut_secim = input(f"{Fore.CYAN}  Kapasite secin [1-5]: {Style.RESET_ALL}").strip()
+        boyutlar = {"1": "n", "2": "s", "3": "m", "4": "l", "5": "x"}
+
+        if boyut_secim not in boyutlar:
+            print(f"{Fore.RED}[-] Gecersiz secim. Iptal edildi.{Style.RESET_ALL}")
+            print()
+            return
+
+        boyut_eki = boyutlar[boyut_secim]
+        yeni_agirlik = f"{on_ek}{boyut_eki}.pt"
+
+    if "model" not in config:
+        config["model"] = {}
+
     eski_agirlik = config["model"].get("agirlik", "yok")
     if eski_agirlik == yeni_agirlik:
         print(f"\n{Fore.YELLOW}[!] Model zaten {eski_agirlik} olarak ayarli.{Style.RESET_ALL}\n")
@@ -360,12 +436,14 @@ def menu_secimi_isle(secim):
     elif secim == "8":
         testleri_calistir()
     elif secim == "9":
+        model_secimi_calistir()
+    elif secim == "10":
         ayarlar_calistir()
     elif secim == "0":
         cikis_yap()
         return False
     else:
-        print(f"{Fore.RED}[-] Gecersiz secim! Lutfen 0-9 arasinda bir deger girin.{Style.RESET_ALL}")
+        print(f"{Fore.RED}[-] Gecersiz secim! Lutfen 0-10 arasinda bir deger girin.{Style.RESET_ALL}")
         print()
     return True
 
@@ -376,7 +454,7 @@ def ana_dongu():
         try:
             basligi_yazdir()
             menuyu_yazdir()
-            secim = input(f"\n{Fore.CYAN}  Seciminiz [0-9]: {Style.RESET_ALL}").strip()
+            secim = input(f"\n{Fore.CYAN}  Seciminiz [0-10]: {Style.RESET_ALL}").strip()
             calisiyor = menu_secimi_isle(secim)
             if calisiyor:
                 input(f"\n{Fore.YELLOW}  Devam etmek icin Enter'a basin...{Style.RESET_ALL}")

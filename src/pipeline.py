@@ -54,8 +54,6 @@ def egitilmis_model_yolu_bul():
 
 
 def hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=None, model=None, yapilandirma=None):
-    from ultralytics import YOLO
-
     if yapilandirma is None:
         yapilandirma = yapilandirma_yukle()
     cikarim_ayari = yapilandirma.get("cikarim", {})
@@ -98,8 +96,13 @@ def hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=None, model=N
         print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
         print()
 
+        model_tur = yapilandirma.get("model", {}).get("tur", "yolo")
+        if model_tur == "rtdetr":
+            from ultralytics import RTDETR as ModelSinifi
+        else:
+            from ultralytics import YOLO as ModelSinifi
         try:
-            model = YOLO(str(model_yolu))
+            model = ModelSinifi(str(model_yolu))
         except Exception as hata:
             print(f"{Fore.RED}[-] Model yuklenemedi: {hata}{Style.RESET_ALL}")
             return None
@@ -234,8 +237,6 @@ def hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=None, model=N
 
 
 def toplu_hasar_tespiti_yap(girdi_klasoru, cikti_klasoru, miktar):
-    from ultralytics import YOLO
-
     girdi_klasoru = Path(girdi_klasoru)
     if not girdi_klasoru.is_absolute():
         girdi_klasoru = PROJE_KOKU / girdi_klasoru
@@ -271,8 +272,13 @@ def toplu_hasar_tespiti_yap(girdi_klasoru, cikti_klasoru, miktar):
         print(f"{Fore.YELLOW}[*] Once model egitimi yapin (Menu secenek 5).{Style.RESET_ALL}")
         return None
 
+    model_tur = yapilandirma.get("model", {}).get("tur", "yolo")
+    if model_tur == "rtdetr":
+        from ultralytics import RTDETR as ModelSinifi
+    else:
+        from ultralytics import YOLO as ModelSinifi
     try:
-        model = YOLO(str(model_yolu))
+        model = ModelSinifi(str(model_yolu))
     except Exception as hata:
         print(f"{Fore.RED}[-] Model yuklenemedi: {hata}{Style.RESET_ALL}")
         return None

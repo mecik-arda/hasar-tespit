@@ -17,7 +17,7 @@ def yapilandirma_yukle():
 
 
 def egitim_baslat(epoch_sayisi=None, batch_size=None, cihaz=None, img_size=None):
-    from ultralytics import YOLO
+    from ultralytics import YOLO, RTDETR
     from src.hardware_check import donanim_profili_olustur
 
     yapilandirma = yapilandirma_yukle()
@@ -75,16 +75,19 @@ def egitim_baslat(epoch_sayisi=None, batch_size=None, cihaz=None, img_size=None)
     print()
 
     transfer_ogrenimi = egitim_ayari.get("transfer_ogrenimi", True)
+    model_tur = yapilandirma.get("model", {}).get("tur", "yolo")
+
     if transfer_ogrenimi:
         print(f"{Fore.BLUE}[*] Transfer ogrenimi aktif. On egitimli agirliklar kullaniliyor.{Style.RESET_ALL}")
 
+    ModelSinifi = RTDETR if model_tur == "rtdetr" else YOLO
     try:
-        model = YOLO(agirlik)
+        model = ModelSinifi(agirlik)
     except Exception as hata:
         print(f"{Fore.RED}[-] Model yuklenemedi: {hata}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}[*] Agirliklar otomatik indirilmeye calisiliyor...{Style.RESET_ALL}")
         try:
-            model = YOLO(agirlik)
+            model = ModelSinifi(agirlik)
         except Exception as hata2:
             print(f"{Fore.RED}[-] Model yukleme basarisiz: {hata2}{Style.RESET_ALL}")
             return False

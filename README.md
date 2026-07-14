@@ -3,7 +3,7 @@
 > **Bu proje, Soft İş Çözümleri bünyesinde hazırlanmış bir staj projesidir.**  
 > **Oluşturulma Tarihi: 14.07.2026**
 
-Bu proje, görüntü işleme ve derin öğrenme (YOLO) algoritmaları kullanarak araçlar üzerindeki fiziksel hasarları (Çizik, Göçük, Cam Kırığı, Pas, Kuş Pisliği) tespit etmek amacıyla geliştirilmiş uçtan uca bir yapay zeka sistemidir.
+Bu proje, görüntü işleme ve derin öğrenme (YOLO / RT-DETR) algoritmaları kullanarak araçlar üzerindeki fiziksel hasarları (Çizik, Göçük, Cam Kırığı, Pas, Kuş Pisliği) tespit etmek amacıyla geliştirilmiş uçtan uca bir yapay zeka sistemidir.
 
 ---
 
@@ -52,6 +52,9 @@ pip install -r requirements.txt
 python main.py
 
 # 5. Sırasıyla aşağıdaki menü adımlarını izleyin:
+#    [1] → Donanım Kontrolü (cihaz seçimi yapın)
+#    [9] → Model Seçimi (YOLO veya RT-DETR)
+#    [10] → Model Ayarları (boyut seçin)
 #    [2] → Veri Etiketleme (LabelImg ile hasarları işaretleyin)
 #    [3] → Veri Artırımı (görselleri çoğaltın)
 #    [4] → Veri Bölme (%80 train / %20 val)
@@ -111,14 +114,14 @@ python main.py   # ardından menüden [1] Donanım Kontrolü'nü seçin
 Projede yer alan temel modüller ve görevleri aşağıda açıklanmıştır:
 
 ### `main.py`
-Projenin ana giriş noktasıdır. Kullanıcıya interaktif bir Komut Satırı Arayüzü (CLI) sunar. Bütün alt modüllere (donanım testi, veri etiketleme, veri artırımı, veri bölme, eğitim ve çıkarım) buradan tek tuşla erişilir. Menü seçenekleri `1` ile `9` arasında numaralandırılmıştır.
+Projenin ana giriş noktasıdır. Kullanıcıya interaktif bir Komut Satırı Arayüzü (CLI) sunar. Bütün alt modüllere (donanım testi, veri etiketleme, veri artırımı, veri bölme, eğitim, model seçimi ve çıkarım) buradan tek tuşla erişilir. Menü seçenekleri `1` ile `10` arasında numaralandırılmıştır.
 
 ### `src/hardware_check.py`
 Sistem kaynaklarını optimize etmekle görevlidir. Tüm GPU (NVIDIA, AMD, Intel Arc) ve NPU donanımlarını tespit eder, Entegre/Harici ayrımı yapar. İçerisinde yer alan fonksiyonlar:
 * `cpu_bilgisi_al()` / `ram_bilgisi_al()`: İşlemci ve bellek bilgilerini toplar.
 * `nvidia_gpu_bilgisi_al()`: NVIDIA GPU'ları nvidia-smi üzerinden tespit eder.
 * `torch_cuda_bilgisi_al()`: PyTorch CUDA kullanılabilirliğini denetler.
-* `wmic_gpu_bilgisi_al()`: Windows üzerinde WMIC ile tüm GPU'ları (AMD, Intel) tarar.
+* `wmic_gpu_bilgisi_al()`: Windows üzerinde PowerShell Get-CimInstance ile tüm GPU'ları (NVIDIA, AMD, Intel) tarar, WMIC fallback'li.
 * `intel_arc_gpu_bilgisi_al()`: Eğitim yapabilen Intel Arc GPU'ları ayrıca belirler.
 * `npu_bilgisi_al()`: Intel AI Boost, AMD Ryzen AI gibi NPU işlemcileri tespit eder.
 * `tum_gpu_bilgisi_al()`: Sistemdeki tüm GPU'ları tek listede toplar.
@@ -135,14 +138,14 @@ Veri hazırlama ve işleme süreçlerinin omurgasıdır. Şu fonksiyonları içe
 
 ### `src/train.py`
 Modelin eğitilmesi ve raporlanmasından sorumludur:
-* `egitim_baslat()`: Girdi parametrelerini (epoch, batch, img_size) yapılandırır ve YOLO modelini transfer öğrenimi (transfer learning) yöntemiyle eğitmeye başlar. Çökmeleri önlemek için negatif girdilerde varsayılan değerlere döner.
+* `egitim_baslat()`: Girdi parametrelerini (epoch, batch, img_size) yapılandırır ve seçili modeli (YOLO veya RT-DETR) transfer öğrenimi (transfer learning) yöntemiyle eğitmeye başlar. Model türüne göre `YOLO()` veya `RTDETR()` sınıfını otomatik seçer. Çökmeleri önlemek için negatif girdilerde varsayılan değerlere döner.
 * `egitim_raporu_goster()`: Tamamlanan eğitimin ardından oluşan metrik dosyalarını (`results.csv`, `args.yaml`) bularak terminale yazdırır (mAP, precision, recall, loss değerleri).
 
 ### `src/pipeline.py`
-Eğitilmiş model üzerinden çıkarım (inference) işlemlerini yürütür:
-* `egitilmis_model_yolu_bul()`: Son çalıştırılan eğitimden kalan en iyi model ağırlığını (`best.pt`) arar.
-* `hasar_tespiti_yap()`: Verilen tekil bir görüntüyü modele sokarak tespit edilen hasar koordinatlarını (bounding box) çizer ve sonuçları kaydeder.
-* `toplu_hasar_tespiti_yap()`: Özel olarak tasarlanan klasör tarama modülüdür. **`hasar-ornek`** klasöründeki fotoğrafları topluca okuyup otomatik işler ve etiketlenmiş sonuçları tek bir genel JSON raporu eşliğinde **`hasar-sonucu`** klasörüne yazar.
+Eğitilmiş model üzerinden çıkarım (inference) işlemlerini yürütür. YOLO ve RT-DETR modellerini otomatik tanır:
+* `egitilmis_model_yolu_bul()`: Son çalıştırılan eğitimden kalan en iyi model ağırlığını (`best.pt`) arar, bulamazsa config.yaml'daki ağırlığa düşer.
+* `hasar_tespiti_yap()`: Verilen tekil bir görüntüyü modele sokarak tespit edilen hasar koordinatlarını (bounding box) çizer ve sonuçları JSON + işaretli görsel olarak kaydeder.
+* `toplu_hasar_tespiti_yap()`: **`hasar-ornek`** klasöründeki fotoğrafları topluca okuyup otomatik işler ve etiketlenmiş sonuçları tek bir genel JSON raporu eşliğinde **`hasar-sonucu`** klasörüne yazar.
 
 ### `src/export.py`
 Eğitilmiş modeli donanıma özel optimize formatlara dönüştürür:
@@ -174,7 +177,7 @@ Sistemi başlatmak için terminalinizde aşağıdaki komutu çalıştırmanız y
 python main.py
 ```
 
-Açılan menüden aşağıdaki işlemleri sırasıyla yapabilirsiniz. **Önerilen iş akışı:** 2 → 3 → 4 → 5 → 6
+Açılan menüden aşağıdaki işlemleri sırasıyla yapabilirsiniz. **Önerilen iş akışı:** 1 → 9 → 10 → 2 → 3 → 4 → 5 → 6
 
 | Seçenek | İşlem | Açıklama |
 |---|---|---|
@@ -182,11 +185,12 @@ Açılan menüden aşağıdaki işlemleri sırasıyla yapabilirsiniz. **Önerile
 | `2` | Veri Etiketleme | `hasar-ornek/` klasöründe LabelImg uygulamasını başlatır |
 | `3` | Veri Artırımı | Etiketlenen görselleri config.yaml ayarlarına göre çoğaltır |
 | `4` | Veri Bölme | Verileri %80 train / %20 val olarak `data/` klasörüne paylaştırır |
-| `5` | Model Eğitimi | Transfer öğrenimi ile YOLO model eğitimini başlatır |
+| `5` | Model Eğitimi | Transfer öğrenimi ile seçili modelin (YOLO/RT-DETR) eğitimini başlatır |
 | `6` | Hasar Tespiti | Tekil veya toplu görselde hasar tespiti yapar |
 | `7` | Eğitim Raporu | Son eğitimin mAP, precision, recall metriklerini gösterir |
-| `8` | Sistem Testleri | Tüm birim ve entegrasyon testlerini koşturur (20 test) |
-| `9` | Model Ayarları | YOLO model neslini (v8/v12) ve boyutunu (n/s/m/l/x) değiştirir |
+| `8` | Sistem Testleri | Tüm birim ve entegrasyon testlerini koşturur (test sayısı dinamik) |
+| `9` | Model Seçimi | YOLO veya RT-DETR model mimarisini seçer |
+| `10` | Model Ayarları | Seçili modelin neslini ve boyutunu yapılandırır |
 | `0` | Çıkış | Uygulamayı sonlandırır |
 
 ### Eğitim Sırasında Parametre Girme
@@ -222,11 +226,22 @@ Projenin tüm akışı `config.yaml` dosyası üzerinden parametrik olarak yöne
 * `bulaniklastirma`: Gaussian bulanıklaştırma uygulanıp uygulanmayacağı (`true` / `false`).
 
 ### Model Ayarları (`model`)
-* `agirlik`: Transfer öğrenimi için temel alınacak YOLO ağırlığı (Örn: `yolo12n.pt`). Menüden `9` ile değiştirilebilir.
+* `tur`: Kullanılacak model mimarisi (`yolo` veya `rtdetr`). Menüden `9` ile değiştirilebilir.
+* `agirlik`: Transfer öğrenimi için temel alınacak model ağırlığı. YOLO için `yolo12n.pt` ~ `yolo12x.pt`, RT-DETR için `rtdetr-l.pt` / `rtdetr-x.pt`. Menüden `10` ile değiştirilebilir.
 * `epoch_sayisi`: Eğitim döngüsü sayısı.
 * `batch_size`: Tek seferde donanıma yüklenecek resim boyutu (Optimum bellek kullanımı için `auto` önerilir).
 * `img_size`: Modele sokulacak görsellerin eğitim boyutu (Genellikle `640`).
 * `cihaz`: Eğitimin yapılacağı donanım (`auto`, `cuda` veya `cpu`).
+
+**Desteklenen modeller ve boyutları:**
+
+| Mimari | Geliştirici | Boyutlar | Özellikler |
+|---|---|---|---|
+| YOLOv8 | Ultralytics | n, s, m, l, x | Klasik tek aşamalı, NMS kullanır |
+| YOLOv12 | Ultralytics | n, s, m, l, x | En yeni YOLO nesli, yüksek hız |
+| RT-DETR | Baidu | l, x | Transformer tabanlı, NMS'siz, yüksek mAP |
+
+> **RT-DETR Avantajı:** Transformatör tabanlıdır, NMS (Non-Maximum Suppression) adımına ihtiyaç duymaz. Benzer boyuttaki YOLO modellerine göre daha yüksek mAP sunar. Ultralytics kütüphanesi tarafından yerleşik desteklenir (`from ultralytics import RTDETR`).
 
 ### Eğitim Hiperparametreleri (`egitim`)
 * `transfer_ogrenimi`: Sıfırdan mı yoksa hazır ağırlıklar (pretrained) üzerinden mi eğitileceği.
@@ -383,7 +398,8 @@ python src/export.py openvino   # OpenVINO (Intel CPU)
 
 Sistem, donanım profilinize göre otomatik olarak:
 - **NVIDIA GPU** varsa → TensorRT (`.engine`)
-- **Intel CPU** (Windows) → OpenVINO
+- **Intel Arc GPU / Intel CPU** (Windows) → OpenVINO
+- **AMD GPU** → ONNX
 - **Diğer durumlar** → ONNX
 
 Desteklenen formatlar: `onnx`, `engine` (TensorRT), `openvino`, `coreml`, `tflite`, `pb`, `torchscript`
@@ -421,6 +437,12 @@ Bazı sistemlerde `pyqt5` gerektirir: `pip install pyqt5`
 
 ### Türkçe Karakterli Dosya Yolları
 Proje, `cv2.imdecode` + `np.fromfile` yöntemiyle Türkçe karakter içeren dosya yollarını sorunsuz okur. Ancak `labelImg` aracı Türkçe karakterli klasör adlarında sorun çıkarabilir — mümkünse düz ASCII karakterler kullanın.
+
+### GPU / NPU Bulunamadı
+Sistem GPU ve NPU tespiti için önce PowerShell (`Get-CimInstance` / `Get-PnpDevice`), başarısız olursa WMIC kullanır. GPU veya NPU'nuz listede görünmüyorsa:
+- **Windows 11 24H2:** WMIC varsayılan olarak kapalı olabilir, PowerShell otomatik devreye girer
+- **Sürücüler:** GPU/NPU sürücülerinizin güncel olduğundan emin olun
+- **Donanımı doğrula:** `python main.py` → `[1]` ile donanım analizini çalıştırın
 
 ### GPU Bulunamadı / CUDA Hatası
 Sistem GPU bulamazsa otomatik olarak CPU'ya düşer. GPU'nuzu test etmek için:

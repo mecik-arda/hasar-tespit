@@ -17,7 +17,8 @@ augmentation:
   gauss_gurultu: true
   bulaniklastirma: true
 model:
-  agirlik: yolo12x.pt
+  tur: rtdetr
+  agirlik: rtdetr-x.pt
   epoch_sayisi: 100
   batch_size: auto
   img_size: 640
