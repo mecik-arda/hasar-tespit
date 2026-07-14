@@ -1,0 +1,11 @@
+path: ./data
+train: images/train
+val: images/val
+
+nc: 5
+names:
+  0: Cizik
+  1: Gocuk
+  2: Cam Kirigi
+  3: Pas
+  4: Kus Pisligi

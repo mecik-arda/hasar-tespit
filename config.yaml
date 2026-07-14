@@ -1,0 +1,52 @@
+proje:
+  ad: "HADES Hasar Tespiti"
+  surum: "1.0.0"
+
+veri:
+  etiket_klasoru: "hasar-ornek"
+  cikti_klasoru: "data"
+  train_orani: 0.8
+  val_orani: 0.2
+
+augmentation:
+  aktif: true
+  carpma_katsayisi: 3
+  donderme_acisi: 15
+  parlaklik_limit: 0.3
+  kontrast_limit: 0.3
+  yatay_cevirme: true
+  dikey_cevirme: false
+  gauss_gurultu: true
+  bulaniklastirma: true
+
+model:
+  agirlik: "yolov8n.pt"
+  epoch_sayisi: 100
+  batch_size: "auto"
+  img_size: 640
+  cihaz: "auto"
+
+egitim:
+  transfer_ogrenimi: true
+  optimizer: "auto"
+  lr0: 0.01
+  lrf: 0.01
+  momentum: 0.937
+  weight_decay: 0.0005
+  warmup_epochs: 3
+  warmup_momentum: 0.8
+  warmup_bias_lr: 0.1
+
+cikarim:
+  guven_eşigi: 0.25
+  iou_esigi: 0.7
+  cikti_klasoru: "runs/predict"
+  gorsel_kaydet: true
+  json_kaydet: true
+
+siniflar:
+  0: "Cizik"
+  1: "Gocuk"
+  2: "Cam Kirigi"
+  3: "Pas"
+  4: "Kus Pisligi"

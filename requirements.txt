@@ -1,0 +1,11 @@
+ultralytics
+opencv-python
+torch
+torchvision
+psutil
+py-cpuinfo
+typer
+labelImg
+albumentations
+pyyaml
+colorama
