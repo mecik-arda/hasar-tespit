@@ -48,6 +48,16 @@ Projenin sınırlarını ve hata yönetimini doğrulayan unittest modüllerini b
 * `test_yuk_ve_es_zamanlilik.py` (Paralel işlem/stres toleransı)
 * `test_egitim_akisi.py` (Sanal verilerle eğitim döngüsü doğrulaması)
 
+## Kurulum
+
+Projeyi çalıştırmadan önce gerekli bağımlılıkları yüklemeniz gerekmektedir:
+
+```bash
+pip install -r requirements.txt
+```
+
+*(Not: Model eğitiminde GPU/CUDA donanım hızlandırmasından tam yararlanabilmek için PyTorch kütüphanesinin sisteminize uygun CUDA sürümünü kurmanız önerilir.)*
+
 ## Kullanım
 
 Sistemi başlatmak için terminalinizde aşağıdaki komutu çalıştırmanız yeterlidir:
