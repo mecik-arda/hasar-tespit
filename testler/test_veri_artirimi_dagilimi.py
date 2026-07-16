@@ -35,8 +35,8 @@ class VeriArtirimiTesti(unittest.TestCase):
     def test_bounding_box_sinirlari(self, mock_yapi):
         mock_yapi.return_value = {
             "veri": {
-                "etiket_klasoru": "test_artirim",
-                "etiketli_klasor": "non_existent_folder"
+                "etiket_klasoru": str(self.gecici_klasor),
+                "etiketli_klasor": str(self.gecici_klasor)
             },
             "augmentation": {
                 "aktif": True,

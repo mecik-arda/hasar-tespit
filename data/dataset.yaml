@@ -1,11 +1,14 @@
 path: ./data
 train: images/train
 val: images/val
+test: images/test
 
-nc: 5
+nc: 7
 names:
   0: Cizik
   1: Gocuk
   2: Cam Kirigi
   3: Pas
   4: Kus Pisligi
+  5: Far Kirigi
+  6: Patlak Lastik

@@ -2,20 +2,29 @@ import sys
 import shutil
 import random
 import subprocess
-import yaml
 import cv2
 from pathlib import Path
 from colorama import Fore, Style, init
 
+from src.utils import PROJE_KOKU, yapilandirma_yukle
+
 init()
 
-PROJE_KOKU = Path(__file__).parent.parent
-YAPILANDIRMA_YOLU = PROJE_KOKU / "config.yaml"
 
-
-def yapilandirma_yukle():
-    with open(YAPILANDIRMA_YOLU, "r", encoding="utf-8") as dosya:
-        return yaml.safe_load(dosya)
+def _dosya_hash_hesapla(dosya_yolu, chunk_size=8192):
+    """Dosyanin MD5 hash'ini chunked okuma ile hesaplar (bellek dostu)."""
+    import hashlib
+    h = hashlib.md5()
+    try:
+        with open(dosya_yolu, "rb") as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                h.update(chunk)
+        return h.hexdigest()
+    except (OSError, IOError):
+        return None
 
 
 def etiketleme_baslat():
@@ -161,7 +170,6 @@ def augmentation_uygula():
         gorseller.extend(etiket_klasoru.glob(f"*{uzanti.upper()}"))
     gorseller = [g for g in gorseller if "augmented" not in str(g)]
 
-    # Etiketli hazir klasorden de gorselleri dahil et
     labelli_gorseller = []
     if etiketli_klasor.exists():
         for uzanti in gorsel_uzantilari:
@@ -280,7 +288,6 @@ def _etiketli_gorselleri_topla(yapilandirma, gorsel_uzantilari=None):
 
     tum_eslesenler = []
 
-    # Kaynak 1: hasar-ornek/ (etiketleme klasoru)
     etiket_klasoru = PROJE_KOKU / yapilandirma["veri"]["etiket_klasoru"]
     ham_gorseller = _klasorden_gorsel_tara(etiket_klasoru, gorsel_uzantilari, augmented_dahil=True)
     for g in ham_gorseller:
@@ -288,7 +295,6 @@ def _etiketli_gorselleri_topla(yapilandirma, gorsel_uzantilari=None):
         if etiket.exists():
             tum_eslesenler.append((g, etiket))
 
-    # Kaynak 2: hasar-ornek-labelli/ (hazir etiketli veri)
     etiketli_klasor_adi = yapilandirma["veri"].get("etiketli_klasor", "hasar-ornek-labelli")
     etiketli_klasor = PROJE_KOKU / etiketli_klasor_adi
     if etiketli_klasor.exists():
@@ -332,7 +338,6 @@ def veri_bol():
     train_ciftleri = eslesenler[:ayrac_noktasi]
     val_ciftleri = eslesenler[ayrac_noktasi:]
 
-    # Kaynak istatistikleri
     ham_kaynakli = sum(1 for g, _ in eslesenler if etiket_klasoru.absolute() in g.parents or (etiket_klasoru / "augmented").absolute() in g.parents)
     labelli_kaynakli = len(eslesenler) - ham_kaynakli
 
@@ -379,8 +384,6 @@ def veri_bol():
 
 
 def veri_kalite_kontrolu(klasor=None):
-    hashlib_modulu = __import__("hashlib")
-
     if klasor is None:
         yapilandirma = yapilandirma_yukle()
         klasor = PROJE_KOKU / yapilandirma["veri"]["etiket_klasoru"]
@@ -431,8 +434,10 @@ def veri_kalite_kontrolu(klasor=None):
             supheli.append({"dosya": gorsel_yolu.name, "sebep": f"Tekduze gorsel (std={piksel_std:.1f})"})
             continue
 
-        with open(gorsel_yolu, "rb") as f:
-            dosya_hash = hashlib_modulu.md5(f.read()).hexdigest()
+        dosya_hash = _dosya_hash_hesapla(str(gorsel_yolu))
+        if dosya_hash is None:
+            bozuk.append({"dosya": gorsel_yolu.name, "sebep": "Hash hesaplanamadi"})
+            continue
         if dosya_hash in gorulen_hashler:
             supheli.append({
                 "dosya": gorsel_yolu.name,
@@ -515,6 +520,22 @@ def gorsel_indir(sinif_adi=None, max_sayi=50, hedef_klasor=None):
 
     print()
     print(f"{Fore.GREEN}[+] Toplam {toplam_indirilen} gorsel indirildi.{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}[!] Indirilen gorseller dogrulaniyor...{Style.RESET_ALL}")
+    for sinif_adi in arama_terimleri:
+        sinif_klasoru = etiket_klasoru / sinif_adi.replace(" ", "_")
+        if not sinif_klasoru.exists():
+            continue
+        for gorsel_yolu in list(sinif_klasoru.glob("*")):
+            if gorsel_yolu.suffix.lower() not in {".jpg", ".jpeg", ".png", ".bmp", ".webp"}:
+                continue
+            gorsel = cv2.imread(str(gorsel_yolu))
+            if gorsel is None:
+                print(f"    {Fore.YELLOW}[!] Bozuk gorsel silindi: {gorsel_yolu.name}{Style.RESET_ALL}")
+                try:
+                    gorsel_yolu.unlink()
+                    toplam_indirilen -= 1
+                except OSError:
+                    pass
     print(f"{Fore.YELLOW}[!] Indirilen gorselleri etiketlemeden once kalite kontrolu yapmaniz onerilir (Menu 12).{Style.RESET_ALL}")
     print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
 
@@ -551,7 +572,9 @@ def roboflow_indir(api_key, proje_yolu, version_no=1, format="yolov8"):
         if not dataset_yaml.exists():
             dataset_yaml = Path(indirme_yolu) / "dataset.yaml"
         if not dataset_yaml.exists():
-            shutil.copy(dataset_yaml.with_name("data.yaml"), dataset_yaml.with_name("dataset.yaml"))
+            kaynak = dataset_yaml.with_name("data.yaml")
+            if kaynak.exists():
+                shutil.copy(kaynak, dataset_yaml.with_name("dataset.yaml"))
 
         print(f"{Fore.YELLOW}[!] Egitim icin: config.yaml'daki veri yolunu bu klasore ayarlayin.{Style.RESET_ALL}")
         print(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")

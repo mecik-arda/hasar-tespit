@@ -1,24 +1,20 @@
 import sys
-import os
 from pathlib import Path
 from colorama import Fore, Style, init
 
+from src.utils import PROJE_KOKU, yapilandirma_yukle
+
 init()
 
-PROJE_KOKU = Path(__file__).parent.parent
-YAPILANDIRMA_YOLU = PROJE_KOKU / "config.yaml"
 
+def _etiket_dosyalarini_oku(etiket_klasoru):
+    """Etiket .txt dosyalarini satir satir okuyup parse eden jenerator.
 
-def yapilandirma_yukle():
-    import yaml
-    with open(YAPILANDIRMA_YOLU, "r", encoding="utf-8") as dosya:
-        return yaml.safe_load(dosya)
-
-
-def etiket_format_kontrolu(etiket_klasoru):
-    """Her .txt dosyasindaki satirlarin gecerli YOLO formatinda olup olmadigini kontrol eder."""
-    hatali = []
-    txt_dosyalari = sorted(etiket_klasoru.glob("*.txt"))
+    Yields:
+        tuple: (dosya_adi, satir_no, parcalar_listesi)
+        parcalar_listesi bos liste ise satir atlanmalidir.
+    """
+    txt_dosyalari = sorted(Path(etiket_klasoru).glob("*.txt"))
     for txt_yolu in txt_dosyalari:
         with open(txt_yolu, "r", encoding="utf-8") as dosya:
             satirlar = dosya.readlines()
@@ -27,116 +23,102 @@ def etiket_format_kontrolu(etiket_klasoru):
             if not satir:
                 continue
             parcalar = satir.split()
-            if len(parcalar) != 5:
-                hatali.append({
-                    "dosya": str(txt_yolu.name),
-                    "satir": satir_no,
-                    "sebep": f"5 deger bekleniyor, {len(parcalar)} bulundu",
-                })
-                continue
-            try:
-                degerler = [float(p) for p in parcalar]
-            except ValueError:
-                hatali.append({
-                    "dosya": str(txt_yolu.name),
-                    "satir": satir_no,
-                    "sebep": "Sayisal olmayan deger",
-                })
+            yield txt_yolu.name, satir_no, parcalar
+
+
+def etiket_format_kontrolu(etiket_klasoru):
+    """Her .txt dosyasindaki satirlarin gecerli YOLO formatinda olup olmadigini kontrol eder."""
+    hatali = []
+    for dosya_adi, satir_no, parcalar in _etiket_dosyalarini_oku(etiket_klasoru):
+        if len(parcalar) != 5:
+            hatali.append({
+                "dosya": dosya_adi,
+                "satir": satir_no,
+                "sebep": f"5 deger bekleniyor, {len(parcalar)} bulundu",
+            })
+            continue
+        try:
+            _ = [float(p) for p in parcalar]
+        except ValueError:
+            hatali.append({
+                "dosya": dosya_adi,
+                "satir": satir_no,
+                "sebep": "Sayisal olmayan deger",
+            })
     return hatali
 
 
 def etiket_sinir_kontrolu(etiket_klasoru):
     """Tum degerlerin 0.0-1.0 araliginda olup olmadigini kontrol eder."""
     hatali = []
-    txt_dosyalari = sorted(etiket_klasoru.glob("*.txt"))
-    for txt_yolu in txt_dosyalari:
-        with open(txt_yolu, "r", encoding="utf-8") as dosya:
-            satirlar = dosya.readlines()
-        for satir_no, satir in enumerate(satirlar, 1):
-            satir = satir.strip()
-            if not satir:
-                continue
-            parcalar = satir.split()
-            if len(parcalar) != 5:
-                continue
-            try:
-                sinif_id = int(parcalar[0])
-                x, y, w, h = float(parcalar[1]), float(parcalar[2]), float(parcalar[3]), float(parcalar[4])
-            except ValueError:
-                continue
-            if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0 and 0.0 <= w <= 1.0 and 0.0 <= h <= 1.0):
-                hatali.append({
-                    "dosya": str(txt_yolu.name),
-                    "satir": satir_no,
-                    "sebep": f"Degerler 0.0-1.0 disinda: x={x}, y={y}, w={w}, h={h}",
-                })
+    for dosya_adi, satir_no, parcalar in _etiket_dosyalarini_oku(etiket_klasoru):
+        if len(parcalar) != 5:
+            continue
+        try:
+            x, y, w, h = float(parcalar[1]), float(parcalar[2]), float(parcalar[3]), float(parcalar[4])
+        except ValueError:
+            continue
+        if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0 and 0.0 <= w <= 1.0 and 0.0 <= h <= 1.0):
+            hatali.append({
+                "dosya": dosya_adi,
+                "satir": satir_no,
+                "sebep": f"Degerler 0.0-1.0 disinda: x={x}, y={y}, w={w}, h={h}",
+            })
     return hatali
 
 
 def etiket_sinif_kontrolu(etiket_klasoru, sinif_sayisi):
     """Sinif ID'lerinin gecerli aralikta olup olmadigini kontrol eder."""
     hatali = []
-    txt_dosyalari = sorted(etiket_klasoru.glob("*.txt"))
-    for txt_yolu in txt_dosyalari:
-        with open(txt_yolu, "r", encoding="utf-8") as dosya:
-            satirlar = dosya.readlines()
-        for satir_no, satir in enumerate(satirlar, 1):
-            satir = satir.strip()
-            if not satir:
-                continue
-            parcalar = satir.split()
-            if len(parcalar) != 5:
-                continue
-            try:
-                sinif_id = int(parcalar[0])
-            except ValueError:
-                continue
-            if sinif_id < 0 or sinif_id >= sinif_sayisi:
-                hatali.append({
-                    "dosya": str(txt_yolu.name),
-                    "satir": satir_no,
-                    "sebep": f"Gecersiz sinif ID: {sinif_id} (0-{sinif_sayisi - 1} bekleniyor)",
-                })
+    for dosya_adi, satir_no, parcalar in _etiket_dosyalarini_oku(etiket_klasoru):
+        if len(parcalar) != 5:
+            continue
+        try:
+            sinif_id = int(parcalar[0])
+        except ValueError:
+            continue
+        if sinif_id < 0 or sinif_id >= sinif_sayisi:
+            hatali.append({
+                "dosya": dosya_adi,
+                "satir": satir_no,
+                "sebep": f"Gecersiz sinif ID: {sinif_id} (0-{sinif_sayisi - 1} bekleniyor)",
+            })
     return hatali
 
 
 def etiket_boyut_kontrolu(etiket_klasoru, min_boyut=0.01, max_boyut=0.95):
     """Bounding box boyutlarinin cok kucuk veya cok buyuk olup olmadigini kontrol eder."""
     hatali = []
-    txt_dosyalari = sorted(etiket_klasoru.glob("*.txt"))
-    for txt_yolu in txt_dosyalari:
-        with open(txt_yolu, "r", encoding="utf-8") as dosya:
-            satirlar = dosya.readlines()
-        for satir_no, satir in enumerate(satirlar, 1):
-            satir = satir.strip()
-            if not satir:
-                continue
-            parcalar = satir.split()
-            if len(parcalar) != 5:
-                continue
-            try:
-                w, h = float(parcalar[3]), float(parcalar[4])
-            except ValueError:
-                continue
-            if w < min_boyut or h < min_boyut:
-                hatali.append({
-                    "dosya": str(txt_yolu.name),
-                    "satir": satir_no,
-                    "sebep": f"Kutu cok kucuk: w={w:.4f}, h={h:.4f} (min: {min_boyut})",
-                })
-            if w > max_boyut or h > max_boyut:
-                hatali.append({
-                    "dosya": str(txt_yolu.name),
-                    "satir": satir_no,
-                    "sebep": f"Kutu cok buyuk: w={w:.4f}, h={h:.4f} (max: {max_boyut})",
-                })
+    for dosya_adi, satir_no, parcalar in _etiket_dosyalarini_oku(etiket_klasoru):
+        if len(parcalar) != 5:
+            continue
+        try:
+            w, h = float(parcalar[3]), float(parcalar[4])
+        except ValueError:
+            continue
+        if w < min_boyut or h < min_boyut:
+            hatali.append({
+                "dosya": dosya_adi,
+                "satir": satir_no,
+                "sebep": f"Kutu cok kucuk: w={w:.4f}, h={h:.4f} (min: {min_boyut})",
+            })
+        if w > max_boyut or h > max_boyut:
+            hatali.append({
+                "dosya": dosya_adi,
+                "satir": satir_no,
+                "sebep": f"Kutu cok buyuk: w={w:.4f}, h={h:.4f} (max: {max_boyut})",
+            })
     return hatali
 
 
 def etiket_overlap_kontrolu(etiket_klasoru, esik=0.8):
-    """Ayni gorseldeki kutularin %80'den fazla ortusup ortusmedigini kontrol eder."""
+    """Ayni gorseldeki kutularin %80'den fazla ortusup ortusmedigini kontrol eder.
+
+    Dosya bazinda calistigi icin _etiket_dosyalarini_oku jeneratoru yerine
+    dosya bazli okuma yaparak ayni dosyadaki tum kutulari birlikte degerlendirir.
+    """
     hatali = []
-    txt_dosyalari = sorted(etiket_klasoru.glob("*.txt"))
+    txt_dosyalari = sorted(Path(etiket_klasoru).glob("*.txt"))
     for txt_yolu in txt_dosyalari:
         kutular = []
         with open(txt_yolu, "r", encoding="utf-8") as dosya:
@@ -185,8 +167,8 @@ def etiket_eslesme_kontrolu(gorsel_klasoru, etiket_klasoru):
     etiketsiz = []
     gorselsiz = []
 
-    gorseller = {f.stem: f for f in gorsel_klasoru.iterdir() if f.suffix.lower() in gorsel_uzantilari}
-    etiketler = {f.stem: f for f in etiket_klasoru.iterdir() if f.suffix == ".txt"}
+    gorseller = {f.stem: f for f in Path(gorsel_klasoru).iterdir() if f.suffix.lower() in gorsel_uzantilari}
+    etiketler = {f.stem: f for f in Path(etiket_klasoru).iterdir() if f.suffix == ".txt"}
 
     for ad in gorseller:
         if ad not in etiketler:
@@ -200,27 +182,23 @@ def etiket_eslesme_kontrolu(gorsel_klasoru, etiket_klasoru):
 
 
 def etiket_dagilim_raporu(etiket_klasoru, siniflar):
-    """Her siniftan kacar etiket oldugunu hesaplar."""
-    sayac = {siniflar.get(i, f"Sinif_{i}"): 0 for i in range(len(siniflar))}
+    """Her siniftan kacar etiket oldugunu hesaplar.
+
+    siniflar dict'inin dogal iterasyonunu kullanir, ardışık tamsayı varsayımı yapmaz.
+    """
+    sayac = {ad: 0 for ad in siniflar.values()}
     toplam = 0
 
-    txt_dosyalari = sorted(etiket_klasoru.glob("*.txt"))
-    for txt_yolu in txt_dosyalari:
-        with open(txt_yolu, "r", encoding="utf-8") as dosya:
-            for satir in dosya:
-                satir = satir.strip()
-                if not satir:
-                    continue
-                parcalar = satir.split()
-                if len(parcalar) != 5:
-                    continue
-                try:
-                    sinif_id = int(parcalar[0])
-                    sinif_adi = siniflar.get(sinif_id, f"Sinif_{sinif_id}")
-                    sayac[sinif_adi] = sayac.get(sinif_adi, 0) + 1
-                    toplam += 1
-                except ValueError:
-                    continue
+    for _, _, parcalar in _etiket_dosyalarini_oku(etiket_klasoru):
+        if len(parcalar) != 5:
+            continue
+        try:
+            sinif_id = int(parcalar[0])
+            sinif_adi = siniflar.get(sinif_id, f"Sinif_{sinif_id}")
+            sayac[sinif_adi] = sayac.get(sinif_adi, 0) + 1
+            toplam += 1
+        except ValueError:
+            continue
     return sayac, toplam
 
 

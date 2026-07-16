@@ -7,7 +7,9 @@ from colorama import Fore, Style, init
 
 init()
 
-PROJE_KOKU = __import__("pathlib").Path(__file__).parent.parent
+from pathlib import Path
+
+PROJE_KOKU = Path(__file__).parent.parent
 
 
 def cpu_bilgisi_al():
@@ -291,7 +293,7 @@ def directml_bilgisi_al():
         for i in range(sayac):
             try:
                 ad = torch_directml.device_name(i)
-            except Exception:
+            except (ImportError, RuntimeError):
                 ad = f"DirectML GPU {i}"
             cihazlar.append({"ad": ad})
         return {
@@ -301,7 +303,7 @@ def directml_bilgisi_al():
         }
     except ImportError:
         return {"durum": False, "sayac": 0, "cihazlar": []}
-    except Exception:
+    except (RuntimeError, OSError):
         return {"durum": False, "sayac": 0, "cihazlar": []}
 
 

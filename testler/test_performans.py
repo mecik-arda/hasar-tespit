@@ -11,6 +11,7 @@ sys.path.insert(0, str(PROJE_KOKU))
 
 from src.export import optimize_edilmis_model_olustur
 
+
 class PerformansTesti(unittest.TestCase):
     @patch("src.export.model_dışa_aktar")
     @patch("src.hardware_check.donanim_profili_olustur")
@@ -22,8 +23,9 @@ class PerformansTesti(unittest.TestCase):
         sonuc = optimize_edilmis_model_olustur()
         gecen_sure = time.time() - baslangic_zamani
 
-        self.assertTrue(sonuc)
-        self.assertGreaterEqual(gecen_sure, 0)
+        self.assertTrue(sonuc, "Optimizasyon basarili olmali")
+        self.assertLess(gecen_sure, 60, f"Optimizasyon cok uzun surdu: {gecen_sure:.1f}s")
+
 
 if __name__ == "__main__":
     unittest.main()

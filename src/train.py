@@ -4,27 +4,12 @@ import os
 from pathlib import Path
 from colorama import Fore, Style, init
 
+from src.utils import (
+    PROJE_KOKU, YAPILANDIRMA_YOLU, EGITIM_KOKU, VERI_KOKU,
+    yapilandirma_yukle, _directml_cihazini_al,
+)
+
 init()
-
-PROJE_KOKU = Path(__file__).parent.parent
-YAPILANDIRMA_YOLU = PROJE_KOKU / "config.yaml"
-VERI_KOKU = PROJE_KOKU / "data"
-EGITIM_KOKU = PROJE_KOKU / "runs" / "train"
-
-
-def yapilandirma_yukle():
-    with open(YAPILANDIRMA_YOLU, "r", encoding="utf-8") as dosya:
-        return yaml.safe_load(dosya)
-
-
-def _directml_cihazini_al():
-    """DirectML GPU cihazini dondurur. Kullanilamiyorsa None."""
-    try:
-        import torch_directml
-        dml = torch_directml.device()
-        return dml
-    except (ImportError, Exception):
-        return None
 
 
 def _intel_cpu_optimizasyonu_uygula():
@@ -80,7 +65,6 @@ def _directml_ortamini_hazirla(hedef_cihaz):
     print(f"{Fore.YELLOW}{'=' * 60}{Style.RESET_ALL}")
     print()
 
-    # Intel CPU optimizasyonu
     cekirdek = _intel_cpu_optimizasyonu_uygula()
     if cekirdek:
         print(f"{Fore.GREEN}[+] Intel CPU optimizasyonu: {cekirdek} fiziksel cekirdek kullanilacak.{Style.RESET_ALL}")
@@ -90,13 +74,15 @@ def _directml_ortamini_hazirla(hedef_cihaz):
     return "cpu", dml, msg
 
 
-def egitim_baslat(epoch_sayisi=None, batch_size=None, cihaz=None, img_size=None, fl_gamma=None):
+def egitim_baslat(epoch_sayisi=None, batch_size=None, cihaz=None, img_size=None, fl_gamma=None, veri_koku=None):
     from ultralytics import YOLO, RTDETR
     from src.hardware_check import donanim_profili_olustur
 
     yapilandirma = yapilandirma_yukle()
     model_ayari = yapilandirma.get("model", {})
     egitim_ayari = yapilandirma.get("egitim", {})
+
+    aktif_veri_koku = Path(veri_koku) if veri_koku else VERI_KOKU
 
     agirlik = model_ayari.get("agirlik", "yolo12n.pt")
     hedef_epoch = epoch_sayisi or model_ayari.get("epoch_sayisi", 100)
@@ -125,7 +111,6 @@ def egitim_baslat(epoch_sayisi=None, batch_size=None, cihaz=None, img_size=None,
     if hedef_cihaz == "auto":
         hedef_cihaz = onerilen_cihaz
 
-    # --- DirectML tespiti ve aktivasyonu ---
     ultralytics_cihaz, dml_cihaz, dml_mesaji = _directml_ortamini_hazirla(hedef_cihaz)
     if dml_mesaji:
         print(f"{Fore.GREEN}[+] {dml_mesaji}{Style.RESET_ALL}")
@@ -145,14 +130,14 @@ def egitim_baslat(epoch_sayisi=None, batch_size=None, cihaz=None, img_size=None,
         print(f"{Fore.GREEN}[+] Colab linki: https://colab.research.google.com/{Style.RESET_ALL}")
         return True
 
-    veri_seti_yolu = VERI_KOKU / "dataset.yaml"
+    veri_seti_yolu = aktif_veri_koku / "dataset.yaml"
     if not veri_seti_yolu.exists():
         print(f"{Fore.RED}[-] Veri seti yapilandirmasi bulunamadi: {veri_seti_yolu}{Style.RESET_ALL}")
         return False
 
-    train_klasoru = VERI_KOKU / "images" / "train"
+    train_klasoru = aktif_veri_koku / "images" / "train"
     if not train_klasoru.exists() or not any(train_klasoru.iterdir()):
-        train_klasoru = VERI_KOKU / "train" / "images"
+        train_klasoru = aktif_veri_koku / "train" / "images"
     if not train_klasoru.exists() or not any(train_klasoru.iterdir()):
         print(f"{Fore.RED}[-] Egitim verisi bulunamadi. Once veri bolme islemini yapin.{Style.RESET_ALL}")
         return False
@@ -222,7 +207,6 @@ def egitim_baslat(epoch_sayisi=None, batch_size=None, cihaz=None, img_size=None,
         print(f"{Fore.GREEN}[+] Egitim tamamlandi!{Style.RESET_ALL}")
         print(f"{Fore.WHITE}    Sonuclar: {EGITIM_KOKU / 'hades_egitim'}{Style.RESET_ALL}")
 
-        # Otomatik OpenVINO / ONNX export
         _egitim_sonrasi_export()
 
         return True
@@ -245,7 +229,7 @@ def _egitim_sonrasi_export():
 
     best_pt = EGITIM_KOKU / "hades_egitim" / "weights" / "best.pt"
     if not best_pt.exists():
-        return  # Egitim basarisiz, export yapilamaz
+        return
 
     profil = donanim_profili_olustur()
     cuda = profil.get("cuda", {})
@@ -256,7 +240,6 @@ def _egitim_sonrasi_export():
     export_formati = None
     export_nedeni = ""
 
-    # Intel GPU/NPU sistemi → OpenVINO en iyi secim
     if intel_arc or npu:
         export_formati = "openvino"
         export_nedeni = "Intel Arc GPU / NPU tespit edildi"
@@ -280,7 +263,10 @@ def _egitim_sonrasi_export():
 
     try:
         from ultralytics import YOLO, RTDETR
-        model = YOLO(str(best_pt))
+        yapilandirma = yapilandirma_yukle()
+        model_tur = yapilandirma.get("model", {}).get("tur", "yolo")
+        ModelSinifi = RTDETR if model_tur == "rtdetr" else YOLO
+        model = ModelSinifi(str(best_pt))
         model.export(format=export_formati)
         print(f"{Fore.GREEN}[+] Model {export_formati.upper()} formatina export edildi.{Style.RESET_ALL}")
         ov_klasor = best_pt.parent / "best_openvino_model"

@@ -24,8 +24,8 @@ augmentation:
   gauss_gurultu: true
   bulaniklastirma: true
 model:
-  tur: rtdetr
-  agirlik: rtdetr-x.pt
+  tur: yolo
+  agirlik: yolov8n.pt
   epoch_sayisi: 100
   batch_size: auto
   img_size: 640
@@ -42,12 +42,23 @@ egitim:
   warmup_bias_lr: 0.1
   fl_gamma: 1.5
 cikarim:
-  guven_eşigi: 0.25
+  guven_esigi: 0.25
   iou_esigi: 0.7
   cikti_klasoru: runs/predict
   gorsel_kaydet: true
   json_kaydet: true
   tta_aktif: false
+  sinif_guven_esikleri:
+    0: 0.3
+    1: 0.2
+    2: 0.45
+    3: 0.25
+    4: 0.35
+    5: 0.4
+    6: 0.4
+  sahi_aktif: false
+  sahi_dilim_boyutu: 640
+  max_sam_boxes: 20
 siniflar:
   0: Cizik
   1: Gocuk
@@ -56,3 +67,28 @@ siniflar:
   4: Kus Pisligi
   5: Far Kirigi
   6: Patlak Lastik
+multi_model:
+  aktif: true
+  siralama:
+  - rt-detr-v2-x
+  - yolov12x
+  - sam2_small
+  - florence-2
+  agirliklar:
+    rtdetr: rtdetr-v2-x.pt
+    yolo: yolov12x.pt
+    sam: sam2_s.pt
+  denetleyici_ayarlari:
+    model: microsoft/Florence-2-base
+    gorev: <OD>
+    ekstra_siniflar:
+    - lastik patlagi
+    - flat tire
+  ram_optimizasyonu: true
+  otomatik_yedekleme_cpu: true
+  model_optimizasyonu: openvino
+  wbf_iou_esigi: 0.55
+  guven_esigi: 0.25
+ai_router:
+  model_adi: openai/clip-vit-base-patch32
+  cop_baraji: 0.7

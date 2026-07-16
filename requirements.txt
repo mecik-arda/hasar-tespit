@@ -2,12 +2,13 @@ ultralytics>=8.4.0,<9.0
 torch>=2.0.0
 torchvision>=0.15.0
 opencv-python>=4.8.0,<5.0
+numpy>=1.24.0
 albumentations>=1.3.0,<2.1
 psutil>=5.9.0
 py-cpuinfo>=9.0.0
 pyyaml>=6.0
 colorama>=0.4.6
-labelImg
+labelImg>=1.8.6,<2.0
 icrawler>=0.6.6
 
 # --- Opsiyonel GPU hizlandirmasi ---
@@ -15,3 +16,16 @@ icrawler>=0.6.6
 torch_directml>=0.2.5
 # Intel GPU / NPU cikarim - OpenVINO:
 openvino>=2024.0
+
+# --- Coklu Model (Multi-Model) Mimarisi ---
+# Florence-2 VLM (Vision-Language Model) ve CLIP Akıllı Yönlendirici (AI Router):
+transformers>=4.41.0
+# PIL/Pillow: Görsel yükleme ve işleme (CLIP Router için gerekli):
+Pillow>=9.0.0
+einops>=0.8.0
+# PyTorch Goruntu Modelleri altyapisi:
+timm>=1.0.0
+# SAM 2 (Meta Segment Anything 2):
+sam-2>=1.0
+# WBF (Weighted Boxes Fusion) kutu birlestirme:
+ensemble-boxes>=1.0.9

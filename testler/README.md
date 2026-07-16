@@ -27,5 +27,6 @@ Sistemde toplamda 17 alt test koşulunu barındıran aşağıdaki modüller yer 
 * **`test_cikarim_tutarliligi.py`:** Aynı görsel üzerinden standart PyTorch formatındaki `.pt` modeli ve çıkarım (inference) altyapısının başarıyla tepki verip çalışabildiğini test eder.
 * **`test_yuk_ve_es_zamanlilik.py`:** Sistemi Multithreading (çoklu iş parçacığı) mantığıyla aşırı yükleyip eşzamanlı olarak birçok çıkarım talebi gönderir. Sistemin kaynak sızıntısı yaşatmadan tepki verebilmesini ve kitlenmemesini stres testine sokar.
 * **`test_limitler.py`:** Programın parametrelerine negatif ve sınır dışı konfigürasyonlar (-5 epoch, 0 image_size vb.) pompalandığında kodun bunu fark edip çökmek (crash) yerine durumu tolere ederek varsayılan (default) değerlerine döndüğünü kanıtlar.
+* **`test_gateway.py`:** CLIP tabanlı Akıllı Yönlendirici (AI Router) modülünün çöp filtresi, kanal yönlendirme, yedek (fallback) mod ve config entegrasyonunu mock'lanmış CLIP modeli ile test eder.
 
 > **Güvenlik Notu:** Testler çalışırken `test_gecici`, `test_stres` gibi çeşitli sanal klasörler oluşturulur ve testlerin başarı durumundan bağımsız olarak `tearDown` metotları vasıtasıyla ortamdan anında otomatik temizlenir. Testler sırasında hiçbir orijinal verinize kalıcı zarar verilmez.

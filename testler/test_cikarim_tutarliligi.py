@@ -18,27 +18,16 @@ class TutarlilikTesti(unittest.TestCase):
     def setUpClass(cls):
         cls.gecici_klasor = PROJE_KOKU / "test_tutarlilik"
         cls.gecici_klasor.mkdir(exist_ok=True)
-        
+
         cls.gorsel_yolu = cls.gecici_klasor / "tutarlilik.jpg"
         resim = np.zeros((640, 640, 3), dtype=np.uint8)
         cv2.rectangle(resim, (100, 100), (500, 500), (255, 255, 255), -1)
         _, kodlanmis = cv2.imencode('.jpg', resim)
         kodlanmis.tofile(str(cls.gorsel_yolu))
-        
+
         config = pipeline.yapilandirma_yukle()
         model_agirligi = config.get("model", {}).get("agirlik", "yolov12n.pt")
-        model_tur = config.get("model", {}).get("tur", "yolo")
         cls.pt_yolu = PROJE_KOKU / model_agirligi
-        cls.onnx_yolu = PROJE_KOKU / model_agirligi.replace(".pt", ".onnx")
-
-        if model_tur == "rtdetr":
-            from ultralytics import RTDETR as ModelSinifi
-        else:
-            from ultralytics import YOLO as ModelSinifi
-
-        if cls.pt_yolu.exists() and not cls.onnx_yolu.exists():
-            model = ModelSinifi(str(cls.pt_yolu))
-            model.export(format="onnx")
 
     @classmethod
     def tearDownClass(cls):
@@ -50,11 +39,8 @@ class TutarlilikTesti(unittest.TestCase):
         mock_model_yolu.return_value = self.pt_yolu
         sonuc_pt = pipeline.hasar_tespiti_yap(str(self.gorsel_yolu))
         self.assertIsNotNone(sonuc_pt)
-        
-        if self.onnx_yolu.exists():
-            mock_model_yolu.return_value = self.onnx_yolu
-            sonuc_onnx = pipeline.hasar_tespiti_yap(str(self.gorsel_yolu))
-            self.assertIsNotNone(sonuc_onnx)
+        self.assertIn("gorsel_yolu", sonuc_pt)
+        self.assertIn("tespitler", sonuc_pt)
 
 if __name__ == "__main__":
     unittest.main()

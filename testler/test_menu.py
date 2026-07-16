@@ -13,24 +13,30 @@ import main
 
 
 class MenuAralikTesti(unittest.TestCase):
-    @patch("main.donanim_kontrolu_calistir")
-    @patch("main.etiketleme_calistir")
-    @patch("main.augmentation_calistir")
-    @patch("main.veri_bolme_calistir")
-    @patch("main.egitim_calistir")
-    @patch("main.cikarim_calistir")
-    @patch("main.rapor_calistir")
-    @patch("main.testleri_calistir")
-    @patch("main.model_secimi_calistir")
-    @patch("main.ayarlar_calistir")
-    @patch("main.gorsel_toplama_calistir")
-    @patch("main.kalite_kontrol_calistir")
-    @patch("main.etiket_dogrulama_calistir")
+    @patch("src.utils.yapilandirma_yukle", return_value={"multi_model": {"aktif": False}, "model": {"tur": "rtdetr", "agirlik": "rtdetr-x.pt"}, "siniflar": {}, "cikarim": {}})
+    @patch("main.gateway_testi_calistir")
     @patch("main.model_bilgisi_calistir")
+    @patch("main.etiket_dogrulama_calistir")
+    @patch("main.kalite_kontrol_calistir")
+    @patch("main.gorsel_toplama_calistir")
+    @patch("main.cikarim_profili_secimi_calistir")
+    @patch("main.orkestrasyon_yoneticisi_calistir")
+    @patch("main.egitim_modeli_secimi_calistir")
+    @patch("main.testleri_calistir")
+    @patch("main.rapor_calistir")
+    @patch("main.cikarim_calistir")
+    @patch("main.egitim_calistir")
+    @patch("main.veri_bolme_calistir")
+    @patch("main.augmentation_calistir")
+    @patch("main.etiketleme_calistir")
+    @patch("main.donanim_kontrolu_calistir")
     @patch("main.cikis_yap")
-    def test_menu_araligi_0_10(
-        self, m0, m14, m13, m12, m11, m10, m9, m8, m7, m6, m5, m4, m3, m2, m1,
+    def test_menu_araligi_0_16(
+        self,
+        m_cikis, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, _mock_config,
     ):
+        self.assertFalse(main.menu_secimi_isle("0"))
+        m_cikis.assert_called_once()
         self.assertTrue(main.menu_secimi_isle("1"))
         m1.assert_called_once()
         self.assertTrue(main.menu_secimi_isle("2"))
@@ -59,6 +65,10 @@ class MenuAralikTesti(unittest.TestCase):
         m13.assert_called_once()
         self.assertTrue(main.menu_secimi_isle("14"))
         m14.assert_called_once()
+        self.assertTrue(main.menu_secimi_isle("15"))
+        m15.assert_called_once()
+        self.assertTrue(main.menu_secimi_isle("16"))
+        m16.assert_called_once()
 
     @patch("main.cikis_yap")
     def test_menu_cikis_false_doner(self, mock_cikis):
@@ -70,60 +80,114 @@ class MenuAralikTesti(unittest.TestCase):
         main.menu_secimi_isle("99")
         cikti = mock_stdout.getvalue()
         self.assertIn("Gecersiz secim", cikti)
-        self.assertIn("0-14", cikti)
+        self.assertIn("0-16", cikti)
 
 
 class ModelSecimiTesti(unittest.TestCase):
     def setUp(self):
-        from src.pipeline import yapilandirma_yukle, yapilandirma_kaydet
+        from src.utils import yapilandirma_yukle, yapilandirma_kaydet
         self.orijinal_config = yapilandirma_yukle()
 
     def tearDown(self):
-        from src.pipeline import yapilandirma_kaydet
+        from src.utils import yapilandirma_kaydet
         yapilandirma_kaydet(self.orijinal_config)
 
     @patch("builtins.input", return_value="1")
-    def test_model_secimi_yolo(self, mock_input):
-        main.model_secimi_calistir()
-        from src.pipeline import yapilandirma_yukle
+    def test_egitim_modeli_secimi_yolo(self, mock_input):
+        main.egitim_modeli_secimi_calistir()
+        from src.utils import yapilandirma_yukle
         config = yapilandirma_yukle()
         self.assertEqual(config["model"]["tur"], "yolo")
 
     @patch("builtins.input", return_value="2")
-    def test_model_secimi_rtdetr(self, mock_input):
-        main.model_secimi_calistir()
-        from src.pipeline import yapilandirma_yukle
+    def test_egitim_modeli_secimi_rtdetr(self, mock_input):
+        main.egitim_modeli_secimi_calistir()
+        from src.utils import yapilandirma_yukle
         config = yapilandirma_yukle()
         self.assertEqual(config["model"]["tur"], "rtdetr")
         self.assertIn("rtdetr", config["model"]["agirlik"])
 
     @patch("builtins.input", return_value="99")
-    def test_model_secimi_gecersiz_iptal(self, mock_input):
-        from src.pipeline import yapilandirma_yukle
+    def test_egitim_modeli_secimi_gecersiz_iptal(self, mock_input):
+        from src.utils import yapilandirma_yukle
         onceki = yapilandirma_yukle()
-        main.model_secimi_calistir()
+        main.egitim_modeli_secimi_calistir()
         sonraki = yapilandirma_yukle()
         self.assertEqual(onceki["model"]["tur"], sonraki["model"]["tur"])
 
-    @patch("builtins.input", side_effect=["1", "1"])
-    def test_ayarlar_yolo_nano(self, mock_input):
-        from src.pipeline import yapilandirma_yukle, yapilandirma_kaydet
-        config = yapilandirma_yukle()
-        config["model"]["tur"] = "yolo"
-        yapilandirma_kaydet(config)
-        main.ayarlar_calistir()
+    @patch("builtins.input", side_effect=["1", "1", "1"])
+    def test_egitim_modeli_secimi_yolo_v8_nano(self, mock_input):
+        main.egitim_modeli_secimi_calistir()
+        from src.utils import yapilandirma_yukle
         config = yapilandirma_yukle()
         self.assertIn("yolov8n.pt", config["model"]["agirlik"])
 
-    @patch("builtins.input", side_effect=["1"])
-    def test_ayarlar_rtdetr_large(self, mock_input):
-        from src.pipeline import yapilandirma_yukle, yapilandirma_kaydet
-        config = yapilandirma_yukle()
-        config["model"]["tur"] = "rtdetr"
-        yapilandirma_kaydet(config)
-        main.ayarlar_calistir()
+    @patch("builtins.input", side_effect=["2", "1"])
+    def test_egitim_modeli_secimi_rtdetr_large(self, mock_input):
+        main.egitim_modeli_secimi_calistir()
+        from src.utils import yapilandirma_yukle
         config = yapilandirma_yukle()
         self.assertEqual(config["model"]["agirlik"], "rtdetr-l.pt")
+
+
+class MenuOrkestrasyonTesti(unittest.TestCase):
+    def setUp(self):
+        from src.utils import yapilandirma_yukle, yapilandirma_kaydet
+        self.orijinal_config = yapilandirma_yukle()
+
+    def tearDown(self):
+        from src.utils import yapilandirma_kaydet
+        yapilandirma_kaydet(self.orijinal_config)
+
+    @patch("builtins.input", return_value="")
+    @patch("main.egitim_modeli_secimi_calistir")
+    @patch("src.utils.yapilandirma_yukle", return_value={"multi_model": {"aktif": True}, "model": {"tur": "rtdetr", "agirlik": "rtdetr-x.pt"}, "siniflar": {}, "cikarim": {}})
+    def test_menu_9_coklu_model_aktifken_engellenir(self, mock_config, mock_egitim_secim, mock_input):
+        sonuc = main.menu_secimi_isle("9")
+        self.assertTrue(sonuc)
+        mock_egitim_secim.assert_not_called()
+
+    @patch("main.egitim_calistir")
+    @patch("src.utils.yapilandirma_kaydet")
+    @patch("builtins.input", return_value="1")
+    @patch("src.utils.yapilandirma_yukle", return_value={"multi_model": {"aktif": True}, "model": {"tur": "rtdetr", "agirlik": "rtdetr-x.pt"}, "siniflar": {}, "cikarim": {}})
+    def test_menu_5_coklu_model_alt_model_yolo(self, mock_config, mock_input, mock_kaydet, mock_egitim):
+        sonuc = main.menu_secimi_isle("5")
+        self.assertTrue(sonuc)
+        mock_kaydet.assert_called_once()
+        self.assertEqual(mock_kaydet.call_args[0][0]["model"]["tur"], "yolo")
+        mock_egitim.assert_called_once()
+
+    @patch("main.egitim_calistir")
+    @patch("src.utils.yapilandirma_kaydet")
+    @patch("builtins.input", return_value="2")
+    @patch("src.utils.yapilandirma_yukle", return_value={"multi_model": {"aktif": True}, "model": {"tur": "yolo", "agirlik": "yolo12n.pt"}, "siniflar": {}, "cikarim": {}})
+    def test_menu_5_coklu_model_alt_model_rtdetr(self, mock_config, mock_input, mock_kaydet, mock_egitim):
+        sonuc = main.menu_secimi_isle("5")
+        self.assertTrue(sonuc)
+        mock_kaydet.assert_called_once()
+        self.assertEqual(mock_kaydet.call_args[0][0]["model"]["tur"], "rtdetr")
+        mock_egitim.assert_called_once()
+
+    @patch("main.egitim_calistir")
+    @patch("src.utils.yapilandirma_kaydet")
+    @patch("builtins.input", return_value="0")
+    @patch("src.utils.yapilandirma_yukle", return_value={"multi_model": {"aktif": True}, "model": {"tur": "rtdetr", "agirlik": "rtdetr-x.pt"}, "siniflar": {}, "cikarim": {}})
+    def test_menu_5_coklu_model_iptal(self, mock_config, mock_input, mock_kaydet, mock_egitim):
+        sonuc = main.menu_secimi_isle("5")
+        self.assertTrue(sonuc)
+        mock_kaydet.assert_not_called()
+        mock_egitim.assert_not_called()
+
+    @patch("main.egitim_calistir")
+    @patch("src.utils.yapilandirma_kaydet")
+    @patch("builtins.input", return_value="99")
+    @patch("src.utils.yapilandirma_yukle", return_value={"multi_model": {"aktif": True}, "model": {"tur": "rtdetr", "agirlik": "rtdetr-x.pt"}, "siniflar": {}, "cikarim": {}})
+    def test_menu_5_coklu_model_gecersiz_secim(self, mock_config, mock_input, mock_kaydet, mock_egitim):
+        sonuc = main.menu_secimi_isle("5")
+        self.assertTrue(sonuc)
+        mock_kaydet.assert_not_called()
+        mock_egitim.assert_not_called()
 
 
 if __name__ == "__main__":

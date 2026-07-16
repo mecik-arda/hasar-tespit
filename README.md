@@ -3,7 +3,11 @@
 > **Bu proje, Soft İş Çözümleri bünyesinde hazırlanmış bir staj projesidir.**  
 > **Oluşturulma Tarihi: 14.07.2026**
 
-Bu proje, görüntü işleme ve derin öğrenme (YOLO / RT-DETR) algoritmaları kullanarak araçlar üzerindeki fiziksel hasarları (Çizik, Göçük, Cam Kırığı, Pas, Kuş Pisliği) tespit etmek amacıyla geliştirilmiş uçtan uca bir yapay zeka sistemidir.
+Bu proje, görüntü işleme ve derin öğrenme (YOLO / RT-DETR) algoritmaları kullanarak araçlar üzerindeki fiziksel hasarları (Çizik, Göçük, Cam Kırığı, Pas, Kuş Pisliği, Far Kırığı, Patlak Lastik) tespit etmek amacıyla geliştirilmiş uçtan uca bir yapay zeka sistemidir.
+
+Sistem, **Çoklu Model (Multi-Model) Mimarisi** ile donatılmıştır: Kutu çıkarımı için **RT-DETRv2-X** ve **YOLOv12x**, piksel seviyesinde göçük maskelemesi için **SAM 2**, son denetim ve nihai etiketleme için ise Microsoft'un VLM'i **Florence-2** ardışık olarak çalışır. Modeller RAM havuzu üzerinden birbirine veri aktarır; her model işi bitince bellekten silinerek VRAM optimize edilir.
+
+Ayrıca sistem, **CLIP tabanlı Akıllı Yönlendirici (AI Router)** mimarisi ile korunur: Kullanıcı fotoğraf yüklediğinde CLIP modeli önce görüntüyü çöp filtresinden geçirir (selfie, fatura, hayvan vb. alakasız görseller engellenir), ardından temiz görselleri içeriklerine göre en uygun kanala yönlendirir — yakın çekim parçalar (lastik, far) hızlı **YOLO** kanalına, geniş açı kaporta hasarları ise ağır **RT-DETR** çoklu-model akışına sevk edilir.
 
 ---
 
@@ -32,6 +36,7 @@ Projede kullanılan başlıca paketler (`requirements.txt`):
 | `torch` / `torchvision` | PyTorch derin öğrenme altyapısı |
 | `torch_directml` | **(Opsiyonel)** Intel Arc / AMD / NVIDIA GPU hızlandırması (DirectX 12) |
 | `opencv-python` | Görüntü işleme ve bounding box çizimi |
+| `numpy` | Sayısal dizi işlemleri ve görsel kodlama/çözme |
 | `albumentations` | Veri artırımı (augmentation) |
 | `labelImg` | Görsel etiketleme aracı |
 | `psutil` / `py-cpuinfo` | Donanım kaynak takibi |
@@ -56,15 +61,11 @@ pip install -r requirements.txt
 # 4. Ana menüyü başlatın
 python main.py
 
-# 5. Sırasıyla aşağıdaki menü adımlarını izleyin:
-#    [1] → Donanım Kontrolü (cihaz seçimi yapın)
-#    [9] → Model Seçimi (YOLO veya RT-DETR)
-#    [10] → Model Ayarları (boyut seçin)
-#    [2] → Veri Etiketleme (LabelImg ile hasarları işaretleyin)
-#    [3] → Veri Artırımı (görselleri çoğaltın)
-#    [4] → Veri Bölme (%80 train / %20 val)
-#    [5] → Model Eğitimi
-#    [6] → Hasar Tespiti (eğitilen model ile çıkarım yapın)
+# 5. Önerilen İş Akışı:
+#    1. Donanım ve Model (1, 9)
+#    2. Orkestrasyon ve Profil Seçimi (10, 11)
+#    3. Veri Hazırlığı (2, 3, 4)
+#    4. Eğitim ve Çıkarım (5, 6)
 ```
 
 > **İpucu:** Eğer sadece sistemi test etmek istiyorsanız, `hasar-ornek/` klasöründe örnek araç fotoğrafları zaten mevcuttur.
@@ -123,7 +124,7 @@ python main.py   # ardından menüden [1] Donanım Kontrolü'nü seçin
 Projede yer alan temel modüller ve görevleri aşağıda açıklanmıştır:
 
 ### `main.py`
-Projenin ana giriş noktasıdır. Kullanıcıya interaktif bir Komut Satırı Arayüzü (CLI) sunar. Bütün alt modüllere (donanım testi, veri etiketleme, veri artırımı, veri bölme, eğitim, model seçimi ve çıkarım) buradan tek tuşla erişilir. Menü seçenekleri `0` ile `13` arasında numaralandırılmıştır. Donanım kontrolü sırasında eğitim ve çıkarım için ayrı ayrı cihaz seçimi yapılır.
+Projenin ana giriş noktasıdır. Kullanıcıya interaktif bir Komut Satırı Arayüzü (CLI) sunar. Bütün alt modüllere buradan tek tuşla erişilir. Menü seçenekleri Rünik kategoriler altında `0` ile `16` arasında gruplandırılmıştır. Donanım kontrolü sırasında eğitim ve çıkarım için ayrı ayrı cihaz seçimi yapılır. Çoklu-Model aktifken bazı menüler (Örn: Tekil Model Seçimi) akıllıca gizlenir veya yönlendirilir.
 
 ### `src/hardware_check.py`
 Sistem kaynaklarını optimize etmekle görevlidir. Tüm GPU (NVIDIA, AMD, Intel Arc) ve NPU donanımlarını tespit eder, DirectML desteğini kontrol eder, Entegre/Harici ayrımı yapar. İçerisinde yer alan fonksiyonlar:
@@ -140,9 +141,18 @@ Sistem kaynaklarını optimize etmekle görevlidir. Tüm GPU (NVIDIA, AMD, Intel
 * `donanim_ozeti_yazdir()`: Toplanan bilgileri GPU 0, GPU 1 şeklinde numaralandırarak CLI'da formatlı sunar. DirectML ve NPU tespit edilmişse ayrıca gösterir.
 * `cihaz_secimi_yap(profil, mod)`: Kullanıcıya mevcut GPU/CPU/NPU seçeneklerini listeler. DirectML varsa **"DirectML GPU (Önerilen)"** olarak en üst sırada sunar. `mod="egitim"` modunda NPU seçenek olarak gösterilmez (uyarı verilir), `mod="cikarim"` modunda NPU seçilebilir hale gelir.
 
+### `src/utils.py`
+Proje genelinde kullanılan ortak sabitler ve yardımcı fonksiyonları barındırır (DRY prensibi):
+* `yapilandirma_yukle()`: `config.yaml` dosyasını ayrıştırır, sonucu bellekte cache'ler. Tekrarlanan disk okumalarını engeller.
+* `yapilandirma_kaydet()`: Yapılandırma dict'ini `config.yaml` dosyasına yazar, cache'i günceller.
+* `_directml_cihazini_al()`: DirectML GPU cihazını tespit eder, sonucu cache'ler.
+* `_openvino_kullanilabilir_mi()`: OpenVINO paketinin yüklü olup olmadığını kontrol eder.
+* `SINIF_RENKLERI`: 7 hasar sınıfı için BGR formatında renk sabitleri (OpenCV uyumlu).
+* `PROJE_KOKU`, `YAPILANDIRMA_YOLU`, `EGITIM_KOKU` gibi proje geneli yol sabitleri.
+
 ### `src/data_tools.py`
 Veri hazırlama ve işleme süreçlerinin omurgasıdır. Şu fonksiyonları içerir:
-* `yapilandirma_yukle()`: `config.yaml` dosyasını ayrıştırır.
+* `yapilandirma_yukle()`: `config.yaml` dosyasını ayrıştırır (→ `src/utils.py` üzerinden).
 * `etiketleme_baslat()`: Kullanıcının resimleri etiketleyebilmesi için arka planda `labelImg` aracını başlatır.
 * `augmentation_uygula()`: Albumentations kütüphanesi yardımıyla mevcut eğitim setini döndürme, parlaklık/kontrast değişimi, yatay/dikey çevirme, Gauss gürültüsü ve bulanıklaştırma teknikleriyle çoğaltır.
 * `veri_bol()`: Etiketlenen veri setini eğitim (%80) ve doğrulama (%20) olmak üzere ikiye ayırarak modelin eğitilmesine hazır hale getirir. Klasörler arasında `shutil.move` ile hızlı taşıma yapar. İşlem sonunda `data/dataset.yaml` dosyasını otomatik oluşturur.
@@ -161,6 +171,17 @@ Eğitilmiş model üzerinden çıkarım (inference) işlemlerini yürütür. YOL
 * `egitilmis_model_yolu_bul()`: Son çalıştırılan eğitimden kalan en iyi model ağırlığını (`best.pt`) arar, bulamazsa config.yaml'daki ağırlığa düşer.
 * `hasar_tespiti_yap()`: Verilen tekil bir görüntüyü modele sokarak tespit edilen hasar koordinatlarını (bounding box) çizer ve sonuçları JSON + işaretli görsel olarak kaydeder.
 * `toplu_hasar_tespiti_yap()`: **`hasar-ornek`** klasöründeki fotoğrafları topluca okuyup otomatik işler ve etiketlenmiş sonuçları tek bir genel JSON raporu eşliğinde **`hasar-sonucu`** klasörüne yazar.
+* `coklu_model_hasar_tespiti_yap()`: **Çoklu Model Mimarisi** ile tekil görselde hasar tespiti yapar. RT-DETRv2-X → YOLOv12x → WBF birleştirme → SAM 2 maskeleme → Florence-2 denetimi ardışık zincirini çalıştırır. Her model işi bitince `del model` + `gc.collect()` ile bellekten silinir, VRAM optimize edilir. VRAM dolarsa otomatik CPU'ya düşer (Auto-Fallback).
+* `coklu_model_toplu_tespiti_yap()`: Çoklu model mimarisini klasördeki birden fazla görsel için toplu (batch) olarak çalıştırır.
+* `_wbf_kutu_birlestir()`: Weighted Boxes Fusion (WBF) algoritması ile RT-DETR ve YOLO'dan gelen üst üste binen kutuları teke düşürür, güven skorlarını harmanlar.
+* `_model_bosalt()`: İşlemi biten modeli RAM/VRAM'den temizler, `gc.collect()` ve `torch.cuda.empty_cache()` çağırır.
+
+### `src/inspector_florence.py`
+Microsoft Florence-2 Vision-Language Model (VLM) ile son denetim ve etiketleme yapan bağımsız modüldür:
+* `denetle()`: RAM havuzundaki kutu ve maske bölgelerini (crop) Florence-2'ye iletir. Model her bölgeye bakarak nihai sınıf etiketini (Örn: "Göçük", "Çizik") belirler. Auto-Fallback ile VRAM dolumunda CPU'ya kayar.
+* `_florence_modeli_yukle()`: Florence-2 modelini HuggingFace `transformers` üzerinden CUDA/DirectML/CPU backend'lerinden uygun olanla yükler.
+* `_florence_modelini_bosalt()`: Florence-2 modelini bellekten tamamen temizler.
+* `_hasar_siniflandir()`: Florence-2'nin metin çıktısını (Örn: "dent", "scratch") proje sınıf adlarına (Örn: "Gocuk", "Cizik") eşler.
 
 ### `src/validator.py`
 Etiketleme sonrası kalite kontrol ve tutarlılık denetimi yapar. 7 aşamalı otomatik kontrol:
@@ -184,17 +205,23 @@ Eğitilmiş modeli donanıma özel optimize formatlara dönüştürür:
 > **Not:** Model dışa aktarımı şu an yalnızca komut satırından çalışır: `python src/export.py optimize`
 
 ### `testler/` Klasörü
-Projenin sınırlarını ve hata yönetimini doğrulayan 12 adet unittest modülünü barındırır (toplam 46 test):
-* `test_donanim.py` — CPU/RAM/GPU/NPU profil yapısı, GPU Entegre/Harici ayrımı, GPU 0-indeks formatı, cihaz seçimi (10 test)
+Projenin sınırlarını ve hata yönetimini doğrulayan 18 adet unittest modülünü barındırır (toplam 140 test):
+* `test_donanim.py` — CPU/RAM/GPU/NPU profil yapısı, GPU Entegre/Harici ayrımı, cihaz seçimi (10 test)
 * `test_veri_araclari.py` — config.yaml bütünlüğü, model.tur geçerliliği ve sınıf sayısı kontrolü (3 test)
-* `test_menu.py` — Menü 0-13 aralığı, model seçimi (YOLO/RT-DETR), model ayarları (8 test)
+* `test_menu.py` — Menü 0-16 aralığı, model seçimi, çoklu-model alt seçimleri, orkestrasyon (11 test)
 * `test_validator.py` — Etiket format, sınır, sınıf ID, boyut, overlap, eşleşme ve dağılım kontrolleri (14 test)
+* `test_gateway.py` — CLIP tabanlı Akıllı Yönlendirici çöp filtresi, kanal yönlendirme, yedek mod (16 test)
+* `test_pipeline_multi.py` — Çoklu model (RT-DETR + YOLO + SAM 2 + Florence-2) orkestrasyon entegrasyonu
+* `test_wbf.py` — Weighted Boxes Fusion birleştirme algoritması (IoU eşiği, güven skoru, çakışma)
+* `test_dinamik_esik.py` — Dinamik güven eşiği ve sınıf bazlı eşik ayarlama
+* `test_cli_orchestration.py` — CLI orkestrasyon komutları ve profil yönetimi
+* `test_capraz_sorgulama.py` — Çapraz model sorgulama ve sonuç karşılaştırma
 * `test_performans.py` — Model optimizasyon süresi ve başarı durumu
-* `test_dayaniklilik.py` — Karanlık ve gürültülü görsellerde kararlılık
+* `test_dayaniklilik.py` — Karanlık ve gürültülü görsellerde kararlılık, Türkçe karakterli yollar
 * `test_gecersiz_girdi.py` — Boş, sahte ve olmayan dosyalarda hata yönetimi
 * `test_egitim_akisi.py` — Sanal verilerle eğitim döngüsü ve ağırlık oluşumu
 * `test_veri_artirimi_dagilimi.py` — Bounding box koordinat sınır kontrolü (0.0-1.0)
-* `test_cikarim_tutarliligi.py` — PyTorch/RT-DETR ve ONNX formatları arası çıkarım tutarlılığı
+* `test_cikarim_tutarliligi.py` — PyTorch model çıkarım tutarlılığı
 * `test_yuk_ve_es_zamanlilik.py` — Çoklu iş parçacığı (multithreading) stres testi
 * `test_limitler.py` — Negatif ve geçersiz konfigürasyon girdilerinde varsayılana dönüş
 
@@ -208,25 +235,28 @@ Sistemi başlatmak için terminalinizde aşağıdaki komutu çalıştırmanız y
 python main.py
 ```
 
-Açılan menüden aşağıdaki işlemleri sırasıyla yapabilirsiniz. **Önerilen iş akışı:** 1 → 9 → 10 → 2 → 3 → 4 → 5 → 6
+Açılan menü Rünik kategorilere (ᛟ, ᛉ, ᛏ, ᛤ) ayrılmış olup `1`'den `16`'ya kadar mantıksal bir sırayla dizilmiştir. 
+**Önerilen İş Akışı:** 1 → 9 → 10 → 11 → 2 → 3 → 4 → 5 → 6
 
-| Seçenek | İşlem | Açıklama |
+| Kategori | Menü | Açıklama |
 |---|---|---|
-| `1` | Donanım Kontrolü | CPU, RAM, GPU, NPU kaynaklarını listeler; ardından eğitim cihazı ve çıkarım cihazı olmak üzere iki ayrı seçim yaptırır |
-| `2` | Veri Etiketleme | `hasar-ornek/` klasöründe LabelImg uygulamasını başlatır |
-| `3` | Veri Artırımı | Etiketlenen görselleri config.yaml ayarlarına göre çoğaltır |
-| `4` | Veri Bölme | Verileri %80 train / %20 val olarak `data/` klasörüne paylaştırır, `dataset.yaml` otomatik oluşturur |
-| `5` | Model Eğitimi | Transfer öğrenimi ile seçili modelin (YOLO/RT-DETR) eğitimini başlatır |
-| `6` | Hasar Tespiti | Tekil veya toplu görselde hasar tespiti yapar; çıkarım cihazı bilgisi gösterilir |
-| `7` | Eğitim Raporu | Son eğitimin mAP, precision, recall metriklerini gösterir |
-| `8` | Sistem Testleri | Tüm birim ve entegrasyon testlerini koşturur |
-| `9` | Model Seçimi | YOLO veya RT-DETR model mimarisini seçer |
-| `10` | Model Ayarları | Seçili modelin neslini ve boyutunu yapılandırır |
-| `11` | Görsel Toplama | Google/Bing'den her sınıf için otomatik hasarlı araç görseli indirir |
-| `12` | Veri Kalite Kontrolü | Görselleri tarar, bozuk/düşük çözünürlük/şüpheli olanları tespit eder |
-| `13` | Etiket Doğrulama | 7 aşamalı etiket kontrolü: format, sınır, overlap, dağılım |
-| `14` | Model Bilgileri | Son eğitim tarihi, mAP50, precision, recall ve model metriklerini gösterir |
-| `0` | Çıkış | Uygulamayı sonlandırır |
+| **ᛟ DONANIM** | `[1]` Donanım Kontrolü | GPU/CPU/NPU donanımını listeler ve cihaz seçimi yaptırır |
+| | `[9]` Eğitilecek Ana Model | Tekil model modu için YOLO/RT-DETR mimarisini seçtirir |
+| **ᛉ VERİ HAZIRLAMA** | `[2]` Veri Etiketleme | `hasar-ornek/` klasöründe LabelImg uygulamasını başlatır |
+| | `[3]` Veri Artırımı | Görselleri parlaklık, rotasyon gibi yöntemlerle çoğaltır |
+| | `[4]` Veri Bölme | Verileri %80 train / %20 val olarak böler, klasörleri hazırlar |
+| **ᛏ EĞİTİM** | `[5]` Model Eğitimini Başlat | Transfer öğrenimi ile seçili modelin eğitimini başlatır. Çoklu modeldeyken hangi alt modeli eğiteceğinizi sorar |
+| **ᛤ ÇIKARIM** | `[6]` Hasar Tespiti Yap | Tekil veya toplu görselde (Multi-Model aktifse tüm modelleri zincirleme kullanarak) hasar tespiti yapar |
+| **ᛟ RAPORLAMA** | `[7]` Eğitim Performans Raporu | Son eğitimin mAP, precision, recall metriklerini gösterir |
+| | `[8]` Sistem Testlerini Çalıştır | Tüm birim (120+ test) ve entegrasyon testlerini koşturur |
+| **ᛉ ORKESTRASYON** | `[10]` Orkestrasyon Yöneticisi | Çoklu-Model ağırlık dosyalarını (YOLO, RT-DETR, SAM2, Florence) belirler |
+| | `[11]` Çıkarım Profili Seçimi | Hızlı, Hibrit, Kusursuz veya Özel profil seçimlerini yaptırır |
+| **ᛏ VERİ TOPLAMA** | `[12]` Görsel Toplama | Otomatik olarak internetten hasarlı araç görseli indirir |
+| | `[13]` Veri Kalite Kontrolü | Görsellerdeki bozuk/düşük çözünürlüklü olanları tarar |
+| | `[14]` Etiket Doğrulama | Etiketleri %80 overlap, boyut ve sınıf bazında 7 aşamada denetler |
+| **ᛤ BİLGİ** | `[15]` Model Bilgileri | Son eğitim tarihi, model boyutları ve parametrelerini gösterir |
+| **ᛟ YÖNLENDİRİCİ** | `[16]` Akıllı Yönlendirici (Gateway) Testi | CLIP modeli ile çöp filtresi ve kanal yönlendirme testini çalıştırır |
+| | `[0]` Çıkış | Uygulamayı kapatır |
 
 > **İpucu:** Herhangi bir giriş ekranında `/yardim` (veya `/help`) yazarak o ekrana özel yardım alabilirsiniz.
 
@@ -323,6 +353,8 @@ Eğitilecek ve tespit edilecek hasar kategorilerinin ID karşılıkları:
 | 2 | Cam Kırığı |
 | 3 | Pas |
 | 4 | Kuş Pisliği |
+| 5 | Far Kırığı |
+| 6 | Patlak Lastik |
 
 ---
 
@@ -483,6 +515,119 @@ PyTorch model ağırlıkları (`.pt`) donanım bağımsızdır; bir GPU'da eğit
 | AMD Ryzen AI NPU | `model.export(format="onnx")` → INT8 quantize sonrası ONNX Runtime + VitisAI EP ile çıkarım yapılır |
 
 > **Not:** NPU çıkarımı, modelin önce `src/export.py` ile uygun formata dönüştürülmesini gerektirir. Export işlemi sonrası NPU üzerinde yüksek verimlilik ve düşük güç tüketimiyle çıkarım yapılabilir.
+
+---
+
+## Çoklu Model Mimarisi (Multi-Model Architecture)
+
+Sistem, `config.yaml`'daki `multi_model.aktif: true` ayarı ile **Çoklu Model Mimarisi**'ni devreye alır. Bu modda hasar tespiti şu ardışık zinciri izler:
+
+### Akış Şeması
+
+```mermaid
+graph TD
+    Input["Girdi: Kullanıcı Görseli"] --> CLIP_Garbage{"[0] CLIP Çöp Filtresi"}
+    
+    CLIP_Garbage -->|Alakasız (Selfie, Fatura vb.)| Discard["⛔ İşlem Reddedildi (Çöp)"]
+    CLIP_Garbage -->|Geçerli Araç Görseli| CLIP_Router{"[0.1] CLIP Yönlendirici (Router)"}
+    
+    CLIP_Router -->|Yakın Çekim (Far, Lastik)| YOLO_Fast["Hızlı Kanal: Sadece YOLOv12x"]
+    YOLO_Fast --> FinalJSON(("Nihai Etiketli JSON Raporu"))
+    
+    CLIP_Router -->|Geniş Açı Kaporta Hasarı| RT("[1] Yükle: RT-DETRv2-X")
+    CLIP_Router -->|Geniş Açı Kaporta Hasarı| YL("[2] Yükle: YOLOv12x")
+    
+    RT -->|Genel Kutular| Merge{"WBF ile Kutu Birleştirme (Python RAM İçinde)"}
+    YL -->|Spesifik Kutular| Merge
+    
+    Merge -->|Göçük Aday Kutuları| SAM_Model("[3] Yükle: SAM 2 - Small")
+    
+    SAM_Model -->|İsimsiz Maskeler| RAM_Pool[("Python RAM Değişkeni: tespitler_havuzu")]
+    Merge -->|Diğer Hasar Kutuları| RAM_Pool
+    
+    RAM_Pool --> FLORENCE("[4] Yükle: Florence-2 VLM (Baş Denetleyici)")
+    
+    FLORENCE -->|Maskeleri İncele| Label1["Sınıflandır: Göçük"]
+    FLORENCE -->|Kutuları İncele| Label2["Sınıflandır/Doğrula: Diğer Hasarlar"]
+    
+    Label1 --> FinalJSON
+    Label2 --> FinalJSON
+    
+    %% Stiller
+    classDef ram fill:#f9f,stroke:#333,stroke-width:2px,color:#000;
+    class RAM_Pool ram;
+    
+    classDef clip fill:#ff9,stroke:#e6b800,stroke-width:2px,color:#000;
+    class CLIP_Garbage,CLIP_Router clip;
+```
+
+### Bellek Yönetimi (RAM Optimizasyonu)
+
+Çoklu model mimarisinin en kritik özelliği **ardışık yükleme ve boşaltma** mantığıdır:
+
+- Her model sırayla belleğe (RAM/VRAM) yüklenir
+- Çıkarım tamamlandığında `del model` + `gc.collect()` ile silinir
+- `torch.cuda.empty_cache()` çağrılarak VRAM tamamen serbest bırakılır
+- 4 model **asla aynı anda** belleği doldurmaz — donanım çökmesi önlenir
+
+### Auto-Fallback (Donanım Koruması)
+
+Her model yüklenirken VRAM dolması (Out of Memory) durumu `try-except` ile yakalanır:
+- VRAM yetersizse model otomatik olarak CPU belleğine kaydırılır
+- Kullanıcı bilgilendirilir: `[!] VRAM dolu, [Model] CPU'ya kaydiriliyor...`
+- İşlem kesintisiz devam eder
+
+### Toplu İşleme (Batch Processing)
+
+Menüden `[6] Hasar Tespiti` seçildiğinde iki alt seçenek sunulur:
+
+1. **Tek Görsel İşle**: Belirli bir dosyada çoklu model tespiti yapar
+2. **Klasörden Toplu İşle (Batch Processing)**: Belirtilen klasördeki tüm görselleri sırayla işler
+
+Toplu işleme sırasında her görsel için tüm model zinciri (RT-DETR → YOLO → WBF → SAM 2 → Florence-2) sırayla çalıştırılır. İşlem sonunda:
+- Her görsel için ayrı JSON çıktısı
+- Tüm görselleri kapsayan genel rapor JSON'ı (`genel_rapor_*.json`)
+
+### Çoklu Model Yapılandırması (`config.yaml`)
+
+```yaml
+multi_model:
+  aktif: true                                          # Çoklu model modunu aç/kapat
+  siralama: ["rt-detr-v2-x", "yolov12x", "sam2_small", "florence-2"]
+  agirliklar:
+    rtdetr: rtdetr-v2-x.pt                             # RT-DETR model ağırlığı
+    yolo: yolov12x.pt                                  # YOLO model ağırlığı
+    sam: sam2_s.pt                                     # SAM 2 model ağırlığı
+  denetleyici_ayarlari:
+    model: microsoft/Florence-2-base                   # HuggingFace model adı
+    gorev: <OD>                                        # Object Detection görevi
+    ekstra_siniflar: ["lastik patlagi", "flat tire"]   # Ekstra sınıf eşleştirme
+  ram_optimizasyonu: true                              # Modüller arası empty_cache tetikler
+  otomatik_yedekleme_cpu: true                         # VRAM dolumunda CPU'ya kay
+  model_optimizasyonu: openvino                        # openvino veya onnx
+  wbf_iou_esigi: 0.55                                  # WBF IoU eşiği
+  guven_esigi: 0.25                                    # Minimum güven skoru
+```
+
+### Çoklu Model Kurulum Gereksinimleri
+
+Çoklu model mimarisi için ek bağımlılıklar gerekir:
+
+```bash
+# Florence-2 VLM
+pip install transformers einops
+
+# PyTorch Görüntü Modelleri altyapısı
+pip install timm
+
+# SAM 2 (Meta Segment Anything 2)
+pip install sam-2
+
+# WBF (Weighted Boxes Fusion)
+pip install ensemble-boxes
+```
+
+> **Not:** Çoklu model mimarisi `multi_model.aktif: false` olarak ayarlandığında sistem tek model (YOLO veya RT-DETR) moduna geri döner. Mevcut iş akışı bozulmadan çalışmaya devam eder.
 
 ---
 

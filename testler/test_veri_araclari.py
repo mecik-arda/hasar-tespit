@@ -7,7 +7,7 @@ from pathlib import Path
 PROJE_KOKU = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJE_KOKU))
 
-from src.data_tools import yapilandirma_yukle
+from src.utils import yapilandirma_yukle
 
 class VeriAraclariTesti(unittest.TestCase):
     def test_yapilandirma_dosya_dogrulamasi(self):

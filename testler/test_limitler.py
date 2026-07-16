@@ -11,6 +11,7 @@ sys.path.insert(0, str(PROJE_KOKU))
 
 from src import train
 
+
 class LimitlerTesti(unittest.TestCase):
     @patch("src.train.yapilandirma_yukle")
     @patch("sys.stdout", new_callable=StringIO)
@@ -19,21 +20,21 @@ class LimitlerTesti(unittest.TestCase):
             "model": {"tur": "yolo", "agirlik": "yolov8n.pt", "epoch_sayisi": 100, "batch_size": "auto", "img_size": 640, "cihaz": "auto"},
             "egitim": {},
         }
-        eski_veri_koku = train.VERI_KOKU
 
-        train.VERI_KOKU = PROJE_KOKU / "test_olmayan_veri"
         try:
-            train.egitim_baslat(epoch_sayisi=-5, batch_size=-10, cihaz="cpu", img_size=-10)
+            train.egitim_baslat(
+                epoch_sayisi=-5, batch_size=-10, cihaz="cpu", img_size=-10,
+                veri_koku=str(PROJE_KOKU / "test_olmayan_veri"),
+            )
         except Exception:
             pass
-        finally:
-            train.VERI_KOKU = eski_veri_koku
 
         cikti = mock_stdout.getvalue()
         self.assertIn("Uyari", cikti)
         self.assertIn("Gecersiz epoch", cikti)
         self.assertIn("Gecersiz batch", cikti)
         self.assertIn("Gecersiz gorsel", cikti)
+
 
 if __name__ == "__main__":
     unittest.main()

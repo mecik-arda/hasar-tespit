@@ -1,18 +1,10 @@
 import sys
-import yaml
 from pathlib import Path
 from colorama import Fore, Style, init
 
+from src.utils import PROJE_KOKU, EGITIM_KOKU, yapilandirma_yukle
+
 init()
-
-PROJE_KOKU = Path(__file__).parent.parent
-YAPILANDIRMA_YOLU = PROJE_KOKU / "config.yaml"
-EGITIM_KOKU = PROJE_KOKU / "runs" / "train"
-
-
-def yapilandirma_yukle():
-    with open(YAPILANDIRMA_YOLU, "r", encoding="utf-8") as dosya:
-        return yaml.safe_load(dosya)
 
 
 def model_dışa_aktar(format="onnx"):
