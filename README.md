@@ -525,40 +525,27 @@ Sistem, `config.yaml`'daki `multi_model.aktif: true` ayarı ile **Çoklu Model M
 ### Akış Şeması
 
 ```mermaid
-graph TD
-    Input["Girdi: Kullanıcı Görseli"] --> CLIP_Garbage{"[0] CLIP Çöp Filtresi"}
-    
-    CLIP_Garbage -->|Alakasız (Selfie, Fatura vb.)| Discard["⛔ İşlem Reddedildi (Çöp)"]
-    CLIP_Garbage -->|Geçerli Araç Görseli| CLIP_Router{"[0.1] CLIP Yönlendirici (Router)"}
-    
-    CLIP_Router -->|Yakın Çekim (Far, Lastik)| YOLO_Fast["Hızlı Kanal: Sadece YOLOv12x"]
-    YOLO_Fast --> FinalJSON(("Nihai Etiketli JSON Raporu"))
-    
-    CLIP_Router -->|Geniş Açı Kaporta Hasarı| RT("[1] Yükle: RT-DETRv2-X")
-    CLIP_Router -->|Geniş Açı Kaporta Hasarı| YL("[2] Yükle: YOLOv12x")
-    
-    RT -->|Genel Kutular| Merge{"WBF ile Kutu Birleştirme (Python RAM İçinde)"}
-    YL -->|Spesifik Kutular| Merge
-    
-    Merge -->|Göçük Aday Kutuları| SAM_Model("[3] Yükle: SAM 2 - Small")
-    
-    SAM_Model -->|İsimsiz Maskeler| RAM_Pool[("Python RAM Değişkeni: tespitler_havuzu")]
-    Merge -->|Diğer Hasar Kutuları| RAM_Pool
-    
-    RAM_Pool --> FLORENCE("[4] Yükle: Florence-2 VLM (Baş Denetleyici)")
-    
-    FLORENCE -->|Maskeleri İncele| Label1["Sınıflandır: Göçük"]
-    FLORENCE -->|Kutuları İncele| Label2["Sınıflandır/Doğrula: Diğer Hasarlar"]
-    
-    Label1 --> FinalJSON
-    Label2 --> FinalJSON
-    
-    %% Stiller
-    classDef ram fill:#f9f,stroke:#333,stroke-width:2px,color:#000;
-    class RAM_Pool ram;
-    
-    classDef clip fill:#ff9,stroke:#e6b800,stroke-width:2px,color:#000;
-    class CLIP_Garbage,CLIP_Router clip;
+flowchart TD
+    Input["Girdi: Kullanıcı Görseli"] --> Filter{"CLIP Çöp Filtresi"}
+    Filter -->|Alakasız| Discard["İşlem reddedildi"]
+    Filter -->|Geçerli araç| Router{"CLIP Akıllı Yönlendirici"}
+    Router -->|Yakın çekim| Fast["Hızlı kanal: YOLOv12x"]
+    Fast --> Output["Nihai çıktı: işaretli görsel ve JSON raporu"]
+    Router -->|Geniş açı| RTDETR["RT-DETRv2-X"]
+    Router -->|Geniş açı| YOLO["YOLOv12x"]
+    RTDETR --> WBF["WBF ile kutu birleştirme"]
+    YOLO --> WBF
+    WBF --> SAM["SAM 2: göçük maskeleme"]
+    WBF --> Pool["RAM havuzu: tespitler ve maskeler"]
+    SAM --> Pool
+    Pool --> Florence["Florence-2: son denetim ve etiketleme"]
+    Florence --> Output
+    classDef routing fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#10243e
+    classDef model fill:#e0e7ff,stroke:#4f46e5,stroke-width:2px,color:#10243e
+    classDef memory fill:#fce7f3,stroke:#db2777,stroke-width:2px,color:#10243e
+    class Filter,Router routing
+    class RTDETR,YOLO,WBF,SAM,Florence model
+    class Pool memory
 ```
 
 ### Bellek Yönetimi (RAM Optimizasyonu)
