@@ -1,20 +1,3 @@
-"""
-CarDD veri setini indirir, COCO formatindan YOLO formatina donusturur
-ve hasar-ornek-labelli/ klasorune yerlestirir.
-
-CarDD Sinif Eslestirmesi:
-  CarDD        -> HADES ID  HADES Adi
-  dent         -> 0         Gocuk
-  scratch      -> 1         Cizik
-  crack        -> 2         Cam Kirigi  (catlak = cam hasari)
-  glass shatter-> 3         Cam Kirigi
-  lamp broken  -> 4         Far Kirigi   (yeni sinif)
-  tire flat    -> 5         Patlak Lastik (yeni sinif)
-
-Kullanim:
-  python _cardd_donustur.py
-"""
-
 import zipfile
 import json
 import shutil

@@ -13,6 +13,8 @@ veri:
     Cam Kirigi: kirik araba cami
     Pas: araba pas hasar
     Kus Pisligi: araba kus pisligi
+    Far Kirigi: kirik araba fari
+    Patlak Lastik: patlak araba lastigi
 augmentation:
   aktif: true
   carpma_katsayisi: 3

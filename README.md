@@ -24,7 +24,7 @@ Model eğitimleri Google Colab üzerinde NVIDIA A100 GPU (80GB VRAM) kullanılar
 
 ### Planlanan Florence-2 Fine-Tune İş Akışı
 
-Florence-2, YOLO etiket koordinatlarıyla ana görselden dinamik olarak kırpılan hasarlı bölgeyi ve `<DETAILED_CAPTION>` görevini birlikte alacak; hedef çıktı olarak `Cizik`, `Gocuk`, `Cam Kirigi`, `Pas` veya `Kus Pisligi` sınıf adını üretecek şekilde eğitilecektir. Böylece zero-shot kullanımda Türkçe hasar terimlerinin `Bilinmeyen` olarak kalması azaltılacaktır.
+Florence-2, YOLO etiket koordinatlarıyla ana görselden dinamik olarak kırpılan hasarlı bölgeyi ve `<DETAILED_CAPTION>` görevini birlikte alacak; hedef çıktı olarak projedeki yedi sınıftan birini (`Cizik`, `Gocuk`, `Cam Kirigi`, `Pas`, `Kus Pisligi`, `Far Kirigi`, `Patlak Lastik`) üretecek şekilde eğitilecektir. Böylece zero-shot kullanımda Türkçe hasar terimlerinin `Bilinmeyen` olarak kalması azaltılacaktır.
 
 [Florence-2 Colab notebook'u](notebooks/florence2_colab_egitim.ipynb) veri arşivini açma, YOLO koordinatlarını piksele çevirip hasar bölgelerini kırpma, veriyi yüzde 85 eğitim ve yüzde 15 doğrulama olarak ayırma, beş epoch eğitim ve çıktıları Google Drive'a kaydetme adımlarını otomatik yürütür. Ana model ağırlıkları dondurulup yalnızca `q_proj` ve `v_proj` dikkat katmanlarına LoRA adaptörleri eklenerek parametrelerin yaklaşık yüzde 1-2'si eğitilecektir. Oluşan küçük adaptör dosyası daha sonra `src/inspector_florence.py` modülüne bağlanarak Türkçe hasar sınıflandırmasında kullanılacaktır.
 
@@ -416,7 +416,7 @@ Her `.txt` dosyası, görseldeki her nesne için bir satır içerir:
 <sınıf_id> <x_merkez> <y_merkez> <genişlik> <yükseklik>
 ```
 
-- `sınıf_id`: Hasar sınıfının numarası (0-4)
+- `sınıf_id`: Hasar sınıfının numarası (0-6)
 - `x_merkez`, `y_merkez`: Nesne merkezinin normalize koordinatları (0.0 - 1.0)
 - `genişlik`, `yükseklik`: Nesne boyutunun normalize değerleri (0.0 - 1.0)
 
