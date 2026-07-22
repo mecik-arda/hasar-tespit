@@ -16,10 +16,17 @@ Model eğitimleri Google Colab üzerinde NVIDIA A100 GPU (80GB VRAM) kullanılar
 
 | Model Mimarisi | Epoch / Tur | mAP50 (Genel Başarı) | Precision (Nokta Atışı) | Recall (Hasar Yakalama) | mAP50-95 (Milimetrik Çizim) | Durum |
 |---|---|---|---|---|---|---|
+| **RT-DETR-x** | 69 Epoch | **%96.5 (0.965)** | **%95.3 (0.953)** | **%94.6 (0.946)** | **%86.6 (0.866)** | **Entegre Edildi (`rtdetr-v2-x.pt`) / Şampiyon** |
 | **YOLOv12x** | 130 Epoch | **%93.7 (0.937)** | **%94.6 (0.946)** | **%89.8 (0.898)** | **%82.2 (0.822)** | **Entegre Edildi (`yolov12x.pt`)** |
-| **RT-DETR-x** | 54 Epoch | **%95.9 (0.959)** | **%94.6 (0.946)** | **%93.5 (0.935)** | **%84.9 (0.849)** | Eğitimi Devam Ediyor / Lider |
+| **Florence-2-base (VLM)** | 5 Epoch (Planlanan) | VQA / Sınıflandırma | - | - | - | Colab QLoRA İnce Ayar Hazır (`notebooks/florence2_colab_egitim.ipynb`) |
 
-> **Güncelleme Notu:** A100 GPU üzerinde 130 tur boyunca eğitilen ve **%93.7 mAP50** ile **%82.2 mAP50-95** rekor kırış başarısına ulaşan en güncel `yolov12x.pt` modeli projeye dahil edilmiş ve entegrasyonu tamamlanmıştır.
+> **Güncelleme Notu:** A100 GPU üzerinde 69 tur boyunca eğitilen ve **%96.5 mAP50** ile **%86.6 mAP50-95** rekor başarıya ulaşarak projenin en yüksek performanslı modeli olan `rtdetr-v2-x.pt` projeye entegre edilmiştir. Ayrıca **%93.7 mAP50** ile `yolov12x.pt` modeli çoklu model zincirinde yerini almıştır.
+
+### Planlanan Florence-2 Fine-Tune İş Akışı
+
+Florence-2, YOLO etiket koordinatlarıyla ana görselden dinamik olarak kırpılan hasarlı bölgeyi ve `<DETAILED_CAPTION>` görevini birlikte alacak; hedef çıktı olarak `Cizik`, `Gocuk`, `Cam Kirigi`, `Pas` veya `Kus Pisligi` sınıf adını üretecek şekilde eğitilecektir. Böylece zero-shot kullanımda Türkçe hasar terimlerinin `Bilinmeyen` olarak kalması azaltılacaktır.
+
+[Florence-2 Colab notebook'u](notebooks/florence2_colab_egitim.ipynb) veri arşivini açma, YOLO koordinatlarını piksele çevirip hasar bölgelerini kırpma, veriyi yüzde 85 eğitim ve yüzde 15 doğrulama olarak ayırma, beş epoch eğitim ve çıktıları Google Drive'a kaydetme adımlarını otomatik yürütür. Ana model ağırlıkları dondurulup yalnızca `q_proj` ve `v_proj` dikkat katmanlarına LoRA adaptörleri eklenerek parametrelerin yaklaşık yüzde 1-2'si eğitilecektir. Oluşan küçük adaptör dosyası daha sonra `src/inspector_florence.py` modülüne bağlanarak Türkçe hasar sınıflandırmasında kullanılacaktır.
 
 ---
 

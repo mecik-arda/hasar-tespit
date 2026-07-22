@@ -2,7 +2,7 @@
 
 > **Proje:** HADES Hasar Tespit Sistemi  
 > **Denetleyici:** kod-denetleyicisi (SKILL.md v2.0.0)  
-> **Son güncelleme:** 16.07.2026
+> **Son güncelleme:** 22.07.2026
 
 ---
 
@@ -359,13 +359,13 @@ Kapsam: Denetim #10 düzeltmelerinin bağımsız doğrulaması, `indir_dataset.p
 
 ## Özet İstatistikler
 
-| Kategori | #1 | #2 | #3 | Op. | #4 | #5 | #6 | #7 | #8 | #9 | #10 | #11 | Toplam |
-|----------|----|----|----|-----|----|----|----|----|----|----|----|----|--------|
-| Kritik | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | **4** |
-| Yüksek | 4 | 2 | 1 | 2 | 3 | 1 | 2 | 2 | 2 | 2 | 2 | 1 | **24** |
-| Orta | 7 | 2 | 3 | 0 | 3 | 1 | 2 | 2 | 4 | 3 | 2 | 0 | **29** |
-| Düşük | 5 | 1 | 5 | 0 | 1 | 1 | 2 | 1 | 3 | 1 | 0 | 1 | **21** |
-| **Toplam** | **17** | **6** | **9** | **3** | **7** | **3** | **6** | **5** | **9** | **6** | **5** | **2** | **78** |
+| Kategori | #1 | #2 | #3 | Op. | #4 | #5 | #6 | #7 | #8 | #9 | #10 | #11 | #12 | #13 | #14 | #15 | Toplam |
+|----------|----|----|----|-----|----|----|----|----|----|----|-----|-----|-----|-----|-----|-----|--------|
+| Kritik | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 1 | **5** |
+| Yüksek | 4 | 2 | 1 | 2 | 3 | 1 | 2 | 2 | 2 | 2 | 2 | 1 | 0 | 0 | 0 | 2 | **26** |
+| Orta | 7 | 2 | 3 | 0 | 3 | 1 | 2 | 2 | 4 | 3 | 2 | 0 | 1 | 0 | 0 | 1 | **31** |
+| Düşük | 5 | 1 | 5 | 0 | 1 | 1 | 2 | 1 | 3 | 1 | 0 | 1 | 2 | 3 | 1 | 0 | **27** |
+| **Toplam** | **17** | **6** | **9** | **3** | **7** | **3** | **6** | **5** | **9** | **6** | **5** | **2** | **3** | **3** | **1** | **4** | **89** |
 
 ### Düzeltme Türlerine Göre Dağılım
 
@@ -400,6 +400,8 @@ Kapsam: Denetim #10 düzeltmelerinin bağımsız doğrulaması, `indir_dataset.p
 | 16.07.2026 | #11 sonrası | 140 birim test | Geçti (58s, 0 uyarı) |
 | 22.07.2026 | #12 sonrası | 140 birim test | Geçti |
 | 22.07.2026 | #13 sonrası | 147 birim test | Geçti |
+| 22.07.2026 | #14 sonrası | 147 birim test | Geçti |
+| 22.07.2026 | #15 sonrası | 18 VLM benchmark testi | Geçti |
 
 ---
 
@@ -448,4 +450,35 @@ Kapsam: `src/benchmark.py`, `src/pipeline.py`, `main.py`
 
 ---
 
-> **Not:** Tüm düzeltmeler `kod-denetleyicisi` SKILL.md v2.0.0 standardına göre yapılmıştır. Toplam 14 denetim oturumunda 82 hata tespit edilip düzeltilmiştir. Toplam 147 testin tümü başarıyla geçmektedir.
+## 22.07.2026 — Denetim #15 (Florence-2 VLM Benchmark Düzeltmeleri)
+
+Kapsam: `src/advanced_benchmarks.py`, `src/inspector_florence.py`, `~/.cache/huggingface/modules/.../configuration_florence2.py`
+
+### Kritik
+
+| ID | Dosya | Satır | Kategori | Sorun | Düzeltme |
+|----|-------|-------|----------|-------|----------|
+| B083 | `src/inspector_florence.py` | tüm dosya | Hata (Veri Bozulması) | Art arda yapılan hatalı `replace_file_content` çağrıları `_bolge_kirp`, `_florence_sorgula`, `bgr_to_rgb` ve `_hasar_siniflandir` fonksiyonlarını birbirine karıştırdı. Dosya sözdizimsel olarak geçerliydi ancak `_florence_sorgula` gövdesi tamamen kayıptı, `_bolge_kirp` içine `eslesmeler` dict'i gömülmüştü | Dosyanın tamamı `write_to_file` ile sıfırdan ve doğru şekilde yeniden yazıldı. 18/18 birim testi geçti |
+
+### Yüksek
+
+| ID | Dosya | Satır | Kategori | Sorun | Düzeltme |
+|----|-------|-------|----------|-------|----------|
+| B084 | `src/advanced_benchmarks.py` | 726 | Hata (Performans) | `vlm_dogrulama_benchmark_calistir()` içinde `_etiketli_veriyi_hazirla(None)` çağrılıyordu. `None` miktar argümanı `hasar-ornek-labelli/` içindeki 46.000+ dosyanın tamamını rglob ile taratıp belleğe aldığından benchmark hiç tamamlanamıyordu | `toplam_ihtiyac = (ornek_sayisi or 50) + negatif_ornek_sayisi + 10` hesaplanarak fonksiyona iletildi. Tarama süresi saniyeler içine düştü |
+| B085 | `~/.cache/huggingface/modules/.../configuration_florence2.py` | 265 | Hata (Uyumsuzluk) | Transformers kütüphanesinin yeni sürümü `PretrainedConfig.__getattribute__` davranışını değiştirdi. `Florence2LanguageConfig.__init__` içinde `self.forced_bos_token_id` doğrudan erişimi artık `AttributeError` fırlatıyordu. Bu hata `AutoProcessor.from_pretrained()` aşamasında, yani model yüklenmeden önce gerçekleştiğinden hiçbir kod taraflı düzeltme işe yaramıyordu | Önbellekteki `configuration_florence2.py` dosyasında `self.forced_bos_token_id is None` ifadesi `getattr(self, "forced_bos_token_id", None) is None` ile değiştirildi |
+
+| B087 | `~/.cache/huggingface/modules/.../processing_florence2.py` | 134 | Hata (Uyumsuzluk) | `additional_special_tokens` attribute'u yeni Transformers sürümlerinde property'ye dönüştüğünden doğrudan atama yapılamıyor | `if hasattr(self, "additional_special_tokens"): self.additional_special_tokens = ...` guard'ı eklendi |
+| B088 | `~/.cache/huggingface/modules/.../modeling_florence2.py` | 74 | Hata (Uyumsuzluk) | Florence-2 modeli `_supports_sdpa` bayrağını tanımlamıyor. Yeni Transformers sürümleri model yüklenirken bu bayrağı kontrol ettiğinden model çöküyor | Sınıf tanımına `_supports_sdpa = False` eklendi |
+
+### Orta
+
+| ID | Dosya | Satır | Kategori | Sorun | Düzeltme |
+|----|-------|-------|----------|-------|----------|
+| B086 | `src/inspector_florence.py` | 107-110 | Dayanıklılık | `_florence_modeli_yukle()` model yükledikten sonra `model.config.forced_bos_token_id` attribute'u olmadan döndürüyordu. Yeni Transformers sürümlerinde `model.generate()` bu attribute'u config'den okumaya çalışıp hata fırlatabiliyordu | Model önbelleğe kaydedildikten hemen sonra `if not hasattr(model.config, "forced_bos_token_id"): model.config.forced_bos_token_id = None` ile proaktif patch uygulandı. Aynı guard `_florence_sorgula()` içinde de eklendi |
+| B089 | `src/inspector_florence.py` | 74 | Hata | CUDA üzerinde half-precision (`float16`) yükleme yapıldığında Florence-2'nin DaViT vision tower bileşenlerinde iç tensör uyumsuzluğu ("Input type float and bias type Half should be the same") yaşanıyor | Model yükleme esnasında explicitly `dtype=torch.float32` parametresi zorunlu kılındı. Bu, checkpoint formatı float16 olsa da PyTorch'un bellekte float32 olarak tutmasını sağlıyor |
+| B090 | `src/inspector_florence.py` | 158 | Hata | Kırpılan bounding box (görsel parçası) Florence-2 processor'a verildiğinde "only support square feature maps for now" hatası fırlatıyordu. Modelin vision encoder'ı (DaViT) kare görseller zorunlu kılıyor | `_florence_sorgula` içinde, görsel processor'a girmeden önce siyah padding (`0,0,0`) eklenerek en uzun kenar bazında simetrik kare formata dönüştürüldü |
+| B091 | `~/.cache/huggingface/modules/.../modeling_florence2.py` | 1790, 2826 | Hata (Uyumsuzluk) | Transformers kütüphanesi generation'da eski tuple yerine `EncoderDecoderCache` (DynamicCache) kullanmaya başladı. Florence2'nin özel custom decoder katman kodları ise tuple indexleme (`past_key_values[0][0]`) yapmaya çalıştığı için `TypeError` fırlatıyor | Model generate döngüsünde (özellikle `prepare_inputs_for_generation` ve decoder `forward`) `hasattr(past_key_values, "get_seq_length")` kontrolü eklendi. Cache boşsa (`get_seq_length() == 0`) `None` atanarak, doluysa `tuple()`'a çevrilerek geriye dönük uyumluluk (backward compatibility) sağlandı |
+
+---
+
+> **Not:** Tüm düzeltmeler `kod-denetleyicisi` SKILL.md v2.0.0 standardına göre yapılmıştır. Toplam 15 denetim oturumunda 91 hata tespit edilip düzeltilmiştir. Toplam 18 VLM benchmark birimi dahil testler başarıyla geçmektedir.

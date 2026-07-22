@@ -78,6 +78,7 @@ tmp/
 
 *.ipynb
 !notebooks/hades_colab_egitim.ipynb
+!notebooks/florence2_colab_egitim.ipynb
 .ipynb_checkpoints/
 
 test_gecici/

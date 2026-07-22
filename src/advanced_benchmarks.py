@@ -692,7 +692,7 @@ def _vlm_gercek_sorgulayicisini_hazirla(yapilandirma):
     ekstra_siniflar = denetleyici.get("ekstra_siniflar", [])
 
     def sorgula(crop, negatif=False):
-        gorev = "<DETAILED_CAPTION> Describe the vehicle surface and identify any visible damage type."
+        gorev = "<DETAILED_CAPTION>"
         sonuc = _florence_sorgula(model, islemci, cihaz, crop, gorev=gorev)
         bolum = sonuc.get(gorev, sonuc) if isinstance(sonuc, dict) else sonuc
         if isinstance(bolum, dict):
@@ -723,7 +723,8 @@ def vlm_skorlarini_hesapla(pozitif_sonuclar, negatif_sonuclar):
 
 def vlm_dogrulama_benchmark_calistir(ornek_sayisi=50, negatif_ornek_sayisi=20, vlm_sorgulayici=None, yapilandirma=None, rapor_uret=True):
     yapilandirma = copy.deepcopy(yapilandirma or yapilandirma_yukle())
-    kayitlar, _, kaynak_adi = _etiketli_veriyi_hazirla(None)
+    toplam_ihtiyac = (ornek_sayisi or 50) + max(0, int(negatif_ornek_sayisi)) + 10
+    kayitlar, _, kaynak_adi = _etiketli_veriyi_hazirla(toplam_ihtiyac)
     if not kayitlar:
         return _rapor_dosyalari_ekle({"durum": "Atlandı (Etiketli görsel bulunamadı)", "veri_kaynagi": kaynak_adi}, rapor_uret, "vlm_dogrulama")
     try:

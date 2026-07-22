@@ -17,13 +17,13 @@ _MEVCUT = False
 _FLORENCE_KILIDI = threading.RLock()
 
 CAPRAZ_SORGULAR = {
-    "Cizik": "<DETAILED_CAPTION> Is this a scratch on the car paint or just a light reflection or shadow?",
-    "Gocuk": "<DETAILED_CAPTION> Is this a dent on the car body or a reflection distortion?",
-    "Cam Kirigi": "<DETAILED_CAPTION> Is the glass cracked or is this a reflection on the window?",
-    "Pas": "<DETAILED_CAPTION> Is this rust corrosion or just dirt or mud on the surface?",
-    "Kus Pisligi": "<DETAILED_CAPTION> Is this bird droppings or a dirt spot?",
-    "Far Kirigi": "<DETAILED_CAPTION> Is the headlight cracked or is this a light reflection?",
-    "Patlak Lastik": "<DETAILED_CAPTION> Is the tire flat or deflated or is this a shadow under the wheel?",
+    "Cizik": "<DETAILED_CAPTION>",
+    "Gocuk": "<DETAILED_CAPTION>",
+    "Cam Kirigi": "<DETAILED_CAPTION>",
+    "Pas": "<DETAILED_CAPTION>",
+    "Kus Pisligi": "<DETAILED_CAPTION>",
+    "Far Kirigi": "<DETAILED_CAPTION>",
+    "Patlak Lastik": "<DETAILED_CAPTION>",
 }
 
 
@@ -74,7 +74,7 @@ def _florence_modeli_yukle(model_adi, otomatik_yedekleme_cpu=True):
             model = AutoModelForCausalLM.from_pretrained(
                 model_adi,
                 trust_remote_code=True,
-                torch_dtype=torch.float16,
+                dtype=torch.float32,
             ).to("cuda")
         elif cihaz == "directml":
             _FLORENCE_CIHAZ = "directml"
@@ -84,6 +84,7 @@ def _florence_modeli_yukle(model_adi, otomatik_yedekleme_cpu=True):
             model = AutoModelForCausalLM.from_pretrained(
                 model_adi,
                 trust_remote_code=True,
+                dtype=torch.float32,
             ).to(dml)
         else:
             _FLORENCE_CIHAZ = "cpu"
@@ -91,6 +92,7 @@ def _florence_modeli_yukle(model_adi, otomatik_yedekleme_cpu=True):
             model = AutoModelForCausalLM.from_pretrained(
                 model_adi,
                 trust_remote_code=True,
+                dtype=torch.float32,
             )
     except RuntimeError as hata:
         if "out of memory" in str(hata).lower() and otomatik_yedekleme_cpu:
@@ -100,12 +102,15 @@ def _florence_modeli_yukle(model_adi, otomatik_yedekleme_cpu=True):
             model = AutoModelForCausalLM.from_pretrained(
                 model_adi,
                 trust_remote_code=True,
+                dtype=torch.float32,
             )
         else:
             raise
 
     _FLORENCE_MODEL = model
     _FLORENCE_PROCESSOR = islemci
+    if not hasattr(model.config, "forced_bos_token_id"):
+        model.config.forced_bos_token_id = None
     return model, islemci, _FLORENCE_CIHAZ
 
 
@@ -138,6 +143,12 @@ def _bolge_kirp(gorsel, kutu):
     return gorsel[y1:y2, x1:x2].copy()
 
 
+def bgr_to_rgb(gorsel_dizisi):
+    if len(gorsel_dizisi.shape) == 3 and gorsel_dizisi.shape[2] == 3:
+        return gorsel_dizisi[:, :, ::-1].copy()
+    return gorsel_dizisi
+
+
 def _florence_sorgula(model, islemci, cihaz, gorsel_dizisi, gorev="<OD>"):
     import torch
     from PIL import Image as PILImage
@@ -147,14 +158,32 @@ def _florence_sorgula(model, islemci, cihaz, gorsel_dizisi, gorev="<OD>"):
     else:
         pil_gorsel = gorsel_dizisi
 
+    width, height = pil_gorsel.size
+    if width != height:
+        max_dim = max(width, height)
+        square_gorsel = PILImage.new("RGB", (max_dim, max_dim), (0, 0, 0))
+        square_gorsel.paste(pil_gorsel, ((max_dim - width) // 2, (max_dim - height) // 2))
+        pil_gorsel = square_gorsel
+
     girdiler = islemci(text=gorev, images=pil_gorsel, return_tensors="pt")
 
+    model_dtype = next(model.parameters()).dtype
+
     if cihaz == "cuda":
-        girdiler = {k: v.to("cuda") for k, v in girdiler.items()}
+        girdiler = {
+            k: v.to(device="cuda", dtype=model_dtype) if v.is_floating_point() else v.to("cuda")
+            for k, v in girdiler.items()
+        }
     elif cihaz == "directml":
         import torch_directml
         dml = torch_directml.device()
-        girdiler = {k: v.to(dml) for k, v in girdiler.items()}
+        girdiler = {
+            k: v.to(device=dml, dtype=model_dtype) if v.is_floating_point() else v.to(dml)
+            for k, v in girdiler.items()
+        }
+
+    if not hasattr(model.config, "forced_bos_token_id"):
+        model.config.forced_bos_token_id = None
 
     with torch.no_grad():
         ciktilar = model.generate(
@@ -170,12 +199,6 @@ def _florence_sorgula(model, islemci, cihaz, gorsel_dizisi, gorev="<OD>"):
         sonuc_metni, task=gorev, image_size=(pil_gorsel.width, pil_gorsel.height)
     )
     return ayrilmis
-
-
-def bgr_to_rgb(gorsel_dizisi):
-    if len(gorsel_dizisi.shape) == 3 and gorsel_dizisi.shape[2] == 3:
-        return gorsel_dizisi[:, :, ::-1].copy()
-    return gorsel_dizisi
 
 
 def _hasar_siniflandir(metin, ekstra_siniflar=None):
@@ -281,10 +304,7 @@ def _denetle_kilitsiz(tespitler_havuzu, gorsel, yapilandirma=None):
                 dogrulanmis_sinif = _hasar_siniflandir(tespit_metni, ekstra_siniflar)
                 orijinal_sinif = kutu_bilgisi.get("sinif_adi", "Bilinmeyen")
 
-                if dogrulanmis_sinif != "Bilinmeyen":
-                    nihai_sinif = dogrulanmis_sinif
-                else:
-                    nihai_sinif = orijinal_sinif
+                nihai_sinif = dogrulanmis_sinif if dogrulanmis_sinif != "Bilinmeyen" else orijinal_sinif
 
                 dogrulanmis_tespit = dict(kutu_bilgisi)
                 dogrulanmis_tespit["sinif_adi"] = nihai_sinif
@@ -325,10 +345,7 @@ def _denetle_kilitsiz(tespitler_havuzu, gorsel, yapilandirma=None):
                 dogrulanmis_sinif = _hasar_siniflandir(tespit_metni, ekstra_siniflar)
                 orijinal_maske_sinif = maske_bilgisi.get("sinif_adi", "Bilinmeyen")
 
-                if dogrulanmis_sinif != "Bilinmeyen":
-                    nihai_maske_sinif = dogrulanmis_sinif
-                else:
-                    nihai_maske_sinif = orijinal_maske_sinif
+                nihai_maske_sinif = dogrulanmis_sinif if dogrulanmis_sinif != "Bilinmeyen" else orijinal_maske_sinif
 
                 dogrulanmis_maske = dict(maske_bilgisi)
                 dogrulanmis_maske["sinif_adi"] = nihai_maske_sinif
