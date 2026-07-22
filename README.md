@@ -196,8 +196,16 @@ Eğitilmiş model üzerinden çıkarım (inference) işlemlerini yürütür. YOL
 * `toplu_hasar_tespiti_yap()`: **`hasar-ornek`** klasöründeki fotoğrafları topluca okuyup otomatik işler ve etiketlenmiş sonuçları tek bir genel JSON raporu eşliğinde **`hasar-sonucu`** klasörüne yazar.
 * `coklu_model_hasar_tespiti_yap()`: **Çoklu Model Mimarisi** ile tekil görselde hasar tespiti yapar. RT-DETRv2-X → YOLOv12x → WBF birleştirme → SAM 2 maskeleme → Florence-2 denetimi ardışık zincirini çalıştırır. Her model işi bitince `del model` + `gc.collect()` ile bellekten silinir, VRAM optimize edilir. VRAM dolarsa otomatik CPU'ya düşer (Auto-Fallback).
 * `coklu_model_toplu_tespiti_yap()`: Çoklu model mimarisini klasördeki birden fazla görsel için toplu (batch) olarak çalıştırır.
-* `_wbf_kutu_birlestir()`: Sınıf bazlı ağırlıklandırma (Class-Based Weighting) destekli Weighted Boxes Fusion (WBF) algoritması ile RT-DETR ve YOLO'dan gelen üst üste binen kutuları teke düşürür, güven skorlarını ve model ağırlıklarını sınıf bazında harmanlar.
+* `_wbf_kutu_birlestir()`: Metrik tabanlı dinamik ve sabit sınıf ağırlıklandırması destekli Weighted Boxes Fusion (WBF) algoritması ile RT-DETR ve YOLO'dan gelen üst üste binen kutuları teke düşürür. En yüksek sınıf veya genel mAP değerine sahip model yapılandırılmış azami ağırlığı alır; metrik bulunamazsa sabit sınıf ağırlığına dönülür.
+* `_sahi_tarama()`: Önce tam görüntü çıkarımı yapar, ardından görüntü boyutuna göre hesaplanan örtüşmeli dilimleri yalnızca küçük hasar sınıfları için tarar. Tam görüntü ve dilim tahminlerini sınıf bazlı NMS ile birleştirir; SAHI kullanılamazsa tam görüntü sonucunu korur.
+* `_adaptif_tta_tarama()`: Kalite analizinin seçtiği en fazla üç tam-görüntü varyantını aynı modelde çalıştırır, dönüştürülmüş kutuları orijinal koordinatlara taşır ve model-içi sınıf bazlı NMS ile tek tahmin kümesine indirir. Bu sayede ana WBF'de model oy dengesi korunur.
 * `_model_bosalt()`: İşlemi biten modeli RAM/VRAM'den temizler, `gc.collect()` ve `torch.cuda.empty_cache()` çağırır.
+
+### `src/adaptive_tta.py`
+Görüntü kalitesini CLIP kullanmadan OpenCV ile analiz eder ve bozulma türüne uygun TTA varyantlarını hazırlar:
+* `gorsel_kalitesini_analiz_et()`: En-boy oranı korumalı sabit uzun kenar ve letterbox normalizasyonundan sonra parlaklık histogramı, siyah/beyaz kırpılma oranı, Laplacian varyansı, Tenengrad enerjisi ve kenar yoğunluğunu ölçer.
+* `tta_varyantlarini_olustur()`: Karanlık görüntülerde gamma ve LAB parlaklık kanalında CLAHE; bulanık görüntülerde `1.25x` ölçek ve yatay çevirme; aşırı parlak görüntülerde kontrollü gamma varyantı üretir.
+* `tta_tahminini_orijinale_tasi()`: Ölçeklenmiş veya yatay çevrilmiş görüntüdeki kutuları orijinal görüntü koordinatlarına dönüştürür.
 
 ### `src/inspector_florence.py`
 Microsoft Florence-2 Vision-Language Model (VLM) ile son denetim ve etiketleme yapan bağımsız modüldür:
@@ -218,11 +226,12 @@ Uçtan uca performans, doğruluk, bellek ve backend değerlendirmesini yürütü
 ### `src/advanced_benchmarks.py`
 Çevresel dayanıklılık, hiperparametre arama, hata analizi ve yük testlerini yürütür:
 * `dayaniklilik_benchmark_calistir()`: Etiketli görsellerde karanlık, parlama, hareket bulanıklığı, sis ve Gauss gürültüsünü üç şiddet düzeyinde deterministik olarak uygular; temel mAP değerine göre kaybı ölçer.
+* `tta_kalibrasyon_benchmark_calistir()`: Karanlık, parlama ve hareket bulanıklığı seviyelerinde TTA kapalı/açık mAP50 ile gecikmeyi karşılaştırır. Eşleşmiş bootstrap ile yüzde 95 güven aralığı üretir; yalnızca `delta mAP50 > 0.02`, güven aralığı alt sınırı sıfırdan büyük ve gecikme bütçesi uygun olduğunda etkinleştirme önerir.
 * `wbf_grid_search_calistir()`: Dedektör çıktılarını bir kez önbelleğe alır, WBF IoU ve güven eşikleri için 99 kaba kombinasyonu tarar ve istenirse en iyi bölgede `0.01` çözünürlüklü ince arama yapar. Önerileri raporlar, `config.yaml` dosyasını değiştirmez.
 * `sinif_karisiklik_matrisi_calistir()`: Normalize karışıklık matrisi, sınıf bazlı TP/FP/FN değerleri ve yanlış sınıflandırmaların ortalama IoU oranlarını üretir.
 * `eszamanlilik_stres_testi_calistir()`: `ThreadPoolExecutor` ile 5, 10 ve 20 iş parçacıklı yük seviyelerini RAM/VRAM ön kontrolünden sonra ölçer; throughput, p95 gecikme ve olası bellek sızıntısını raporlar.
 * `vlm_dogrulama_benchmark_calistir()`: Artırılmış verileri dışarıda bırakarak sınıflar arasında dengeli Florence-2 doğruluk örnekleri ve hasarsız arka plan kırpımlarında halüsinasyon oranı üretir.
-* `gelismis_benchmark_suitini_calistir()`: Beş gelişmiş testi tek çalıştırmada birleştirir ve `runs/benchmark/` altında JSON ile Markdown raporu oluşturur.
+* `gelismis_benchmark_suitini_calistir()`: Dayanıklılık, Adaptive TTA kalibrasyonu, WBF araması, karışıklık matrisi, eşzamanlılık ve VLM doğrulamasını tek çalıştırmada birleştirir; `runs/benchmark/` altında JSON ile Markdown raporu oluşturur.
 
 ### `src/validator.py`
 Etiketleme sonrası kalite kontrol ve tutarlılık denetimi yapar. 7 aşamalı otomatik kontrol:
@@ -385,7 +394,29 @@ Projenin tüm akışı `config.yaml` dosyası üzerinden parametrik olarak yöne
 * `cikti_klasoru`: Çıkarım sonuçlarının kaydedileceği klasör.
 * `gorsel_kaydet`: Tespit sonuçlarının işaretli görsel olarak kaydedilip kaydedilmeyeceği (`true` / `false`).
 * `json_kaydet`: Tespit sonuçlarının JSON raporu olarak kaydedilip kaydedilmeyeceği (`true` / `false`).
-* `tta_aktif`: Test Time Augmentation. `true` olduğunda görsel farklı ölçek ve açılarda birden fazla kez işlenip tahminler birleştirilir, mAP artar ama hız düşer. Menüden `6` ile değiştirilebilir.
+* `tta_aktif`: Adaptive TTA kararından bağımsız manuel zorlama bayrağıdır. `true` olduğunda kalite profili normal olsa da tam görüntü TTA dalları çalıştırılır.
+* `tta_adaptif.aktif`: Histogram ve netlik analizi zor görüntü saptadığında Adaptive TTA'yı otomatik etkinleştirir.
+* `tta_adaptif.analiz_uzun_kenar`: Kalite metriklerinin çözünürlükten bağımsız hesaplanması için en-boy oranı korunarak kullanılan analiz boyutudur.
+* `tta_adaptif.karanlik_medyan_esigi` / `parlak_medyan_esigi`: Karanlık ve aşırı parlak kalite profillerinin medyan parlaklık sınırlarıdır.
+* `tta_adaptif.siyaha_kirpma_orani_esigi` / `beyaza_kirpma_orani_esigi`: Siyah veya beyaza doymuş piksel oranı sınırlarıdır.
+* `tta_adaptif.laplacian_referansi`, `tenengrad_referansi`, `kenar_yogunlugu_referansi`: Birleşik netlik skorunun normalize edilmesinde kullanılan referans değerleridir.
+* `tta_adaptif.minimum_netlik_analiz_kontrasti` / `minimum_netlik_analiz_kenar_orani`: Düz kaporta gibi doğal olarak dokusuz alanların bulanık sayılmasını engeller; yeterli görsel bilgi yoksa sonuç `sinirda_guvenilirlik` ile işaretlenir.
+* `tta_adaptif.netlik_skoru_esigi` / `agir_bulaniklik_esigi`: TTA tetikleme ve `sinirda_guvenilirlik` telemetrisi için kullanılan netlik sınırlarıdır.
+* `tta_adaptif.gamma`: `cikti = 255 * (girdi / 255) ^ gamma` formülündeki karanlık görüntü açma katsayısıdır; varsayılan `0.7` değeri koyu pikselleri yükseltir.
+* `tta_adaptif.clahe_clip_limiti` / `clahe_izgara_boyutu`: Yalnızca LAB renk uzayının parlaklık kanalına uygulanan CLAHE parametreleridir.
+* `tta_adaptif.yuksek_olcek`: Küçük hasarlar için kullanılan yüksek çözünürlük dalıdır; varsayılan değer `1.25` seviyesindedir.
+* `tta_adaptif.azami_varyant`: Orijinal dahil model başına çalıştırılabilecek azami tam-görüntü dalı sayısıdır ve en fazla `3` kabul edilir.
+* `tta_adaptif.model_ici_iou_esigi`: Bir modelin TTA dallarını ana modeller-arası WBF'den önce tek tahmin kümesine indiren sınıf bazlı NMS eşiğidir.
+* `tta_adaptif.kalibrasyon`: Minimum mAP50 artışı, bootstrap tekrarı, güven düzeyi ve kabul edilebilir gecikme artışını tanımlar.
+* `sahi_aktif`: Tam görüntü çıkarımına ek olarak SAHI dilimli çıkarımının çalışıp çalışmayacağını belirler.
+* `sahi_dilim_boyutu`: Adaptif mod kapalı olduğunda kullanılan sabit dilim boyutudur.
+* `sahi_adaptif.aktif`: Görüntü çözünürlüğüne göre dilim boyutunun otomatik hesaplanmasını sağlar.
+* `sahi_adaptif.hedef_siniflar`: Yalnızca dilimli çıkarımdan ek tespit kabul edilecek küçük hasar sınıflarıdır. Mevcut yedi sınıflı şemada varsayılan değerler `Cizik` ve `Pas` sınıflarıdır. Projeye ileride `Tas Izi` sınıfı eklenirse bu listeye ayrıca yazılabilir.
+* `sahi_adaptif.minimum_uzun_kenar`: Bu piksel değerinden küçük görüntülerde gereksiz dilimlemeyi atlar.
+* `sahi_adaptif.dilim_orani`: Dilim kenarını görüntünün kısa kenarına göre hesaplayan orandır.
+* `sahi_adaptif.asgari_dilim_boyutu` / `azami_dilim_boyutu`: Dinamik dilim boyutunun güvenli alt ve üst sınırlarıdır.
+* `sahi_adaptif.bindirme_orani`: Komşu dilimler arasındaki örtüşme oranıdır.
+* `sahi_adaptif.birlestirme_iou_esigi`: Tam görüntü ve dilim tahminlerini sınıf bazlı NMS ile birleştirme eşiğidir.
 
 ### Sınıflar (`siniflar`)
 Eğitilecek ve tespit edilecek hasar kategorilerinin ID karşılıkları:
@@ -470,15 +501,31 @@ hasar-nespit/
       "sinif_id": 0,
       "sinif_adi": "Cizik",
       "guven": 0.8723,
-      "kutucuk": { "x1": 120, "y1": 80, "x2": 340, "y2": 210 }
+      "kutucuk": { "x1": 120, "y1": 80, "x2": 340, "y2": 210 },
+      "adaptif_tta": true,
+      "tta_varyanti": "gamma"
     },
     {
       "sinif_id": 1,
       "sinif_adi": "Gocuk",
       "guven": 0.9145,
-      "kutucuk": { "x1": 510, "y1": 300, "x2": 700, "y2": 450 }
+      "kutucuk": { "x1": 510, "y1": 300, "x2": 700, "y2": 450 },
+      "adaptif_tta": false,
+      "tta_varyanti": "orijinal"
     }
-  ]
+  ],
+  "kalite_telemetrisi": {
+    "kalite_profili": "karanlik",
+    "parlaklik_skoru": 0.1642,
+    "parlama_orani": 0.0021,
+    "bulaniklik_skoru": 0.2715,
+    "tta_tetiklendi": true,
+    "tta_nedeni": ["karanlik"],
+    "uygulanan_varyantlar": ["orijinal", "gamma", "lab_clahe"],
+    "sinirda_guvenilirlik": false,
+    "kalite_analiz_suresi_ms": 0.84,
+    "tta_ek_sure_ms": 31.42
+  }
 }
 ```
 
@@ -583,11 +630,15 @@ flowchart TD
     SingleMulti -->|Hayır| Single
     SingleMulti -->|Evet| MultiStart
 
-    MultiStart --> RTDETR["RT-DETRv2-X taraması"]
-    RTDETR --> RTUnload["Kutular RAM havuzuna eklenir ve model boşaltılır"]
-    RTUnload --> YOLO["YOLOv12x taraması"]
-    YOLO --> YOLOUnload["Kutular RAM havuzuna eklenir ve model boşaltılır"]
-    YOLOUnload --> WBF["WBF: sınıf bazlı kutu birleştirme"]
+    MultiStart --> Quality["OpenCV kalite analizi: histogram, Laplacian, Tenengrad ve kenar yoğunluğu"]
+    Quality --> Policy{"Kalite ve çözünürlük politikası"}
+    Policy --> RTDETR["RT-DETRv2-X: tam görüntü Adaptive TTA ve TTA'sız adaptif SAHI"]
+    RTDETR --> RTFusion["RT-DETR model-içi TTA NMS"]
+    RTFusion --> RTUnload["Tekil RT-DETR kutuları RAM havuzuna eklenir ve model boşaltılır"]
+    RTUnload --> YOLO["YOLOv12x: tam görüntü Adaptive TTA ve TTA'sız adaptif SAHI"]
+    YOLO --> YOLOFusion["YOLO model-içi TTA NMS"]
+    YOLOFusion --> YOLOUnload["Tekil YOLO kutuları RAM havuzuna eklenir ve model boşaltılır"]
+    YOLOUnload --> WBF["WBF: metrik tabanlı dinamik kutu birleştirme"]
     WBF --> SAM["SAM 2: göçükleri, göçük yoksa en güvenli kutuları maskeler"]
     SAM --> Florence["Florence-2: kırpılmış kutu ve maskeleri denetler"]
     Florence --> SingleOutput["Çıktı: işaretli görsel ve ayara bağlı JSON"]
@@ -596,8 +647,9 @@ flowchart TD
     Mode -->|Toplu işlem| BatchMulti{"multi_model.aktif"}
     BatchMulti -->|Hayır| ClassicBatch["Klasik tek-model toplu çıkarım"]
     BatchMulti -->|Evet| Chunk["Görseller en fazla 50 öğelik chunk'lara ayrılır"]
-    Chunk --> BatchRT["RT-DETR tüm chunk'ı tarar ve boşaltılır"]
-    BatchRT --> BatchYOLO["YOLO tüm chunk'ı tarar ve boşaltılır"]
+    Chunk --> BatchQuality["Her görsel için OpenCV kalite profili bir kez hesaplanır"]
+    BatchQuality --> BatchRT["RT-DETR adaptif tam-görüntü dallarını model-içinde birleştirir"]
+    BatchRT --> BatchYOLO["YOLO adaptif tam-görüntü dallarını model-içinde birleştirir"]
     BatchYOLO --> BatchWBF["Her görsel için WBF uygulanır"]
     BatchWBF --> BatchSAM["SAM 2 ile chunk maskelenir"]
     BatchSAM --> BatchFlorence["Florence-2 görselleri sırayla denetler"]
@@ -608,8 +660,8 @@ flowchart TD
     classDef routing fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#10243e
     classDef model fill:#e0e7ff,stroke:#4f46e5,stroke-width:2px,color:#10243e
     classDef memory fill:#fce7f3,stroke:#db2777,stroke-width:2px,color:#10243e
-    class GatewayChoice,CLIP,SingleMulti,RoutedMulti,BatchMulti routing
-    class Single,RTDETR,YOLO,WBF,SAM,Florence,ClassicBatch,BatchRT,BatchYOLO,BatchWBF,BatchSAM,BatchFlorence model
+    class GatewayChoice,CLIP,SingleMulti,RoutedMulti,BatchMulti,Policy routing
+    class Single,Quality,RTDETR,RTFusion,YOLO,YOLOFusion,WBF,SAM,Florence,ClassicBatch,BatchQuality,BatchRT,BatchYOLO,BatchWBF,BatchSAM,BatchFlorence model
     class RTUnload,YOLOUnload,Chunk,SequenceNote memory
 ```
 
@@ -661,6 +713,19 @@ multi_model:
   model_optimizasyonu: openvino
   wbf_iou_esigi: 0.55
   guven_esigi: 0.25
+  wbf_dinamik_agirliklandirma:
+    aktif: true
+    metrik_adi: mAP50
+    asgari_agirlik: 1.0
+    azami_agirlik: 2.5
+    duyarlilik: 4.0
+    model_metrikleri:
+      rt-detr-v2-x:
+        genel: 0.965
+        siniflar: {}
+      yolov12x:
+        genel: 0.937
+        siniflar: {}
   wbf_sinif_agirliklari:
     Cizik:
       yolov12x: 2.0
@@ -669,6 +734,10 @@ multi_model:
       rt-detr-v2-x: 2.0
       yolov12x: 1.0
 ```
+
+Dinamik WBF etkin olduğunda her sınıf için önce `model_metrikleri.<model>.siniflar` altındaki değer aranır; sınıfa özel metrik yoksa `genel` değeri kullanılır. En başarılı model `azami_agirlik` değerini alır, diğer modellerin ağırlıkları başarı oranı ve `duyarlilik` katsayısıyla otomatik hesaplanır. Metrik değerleri `0-1` veya yüzde biçiminde `0-100` aralığında girilebilir. Dinamik metrik bulunamadığında `wbf_sinif_agirliklari` güvenli geri dönüş olarak korunur. Her birleşmiş tespitte kullanılan değerler `wbf_model_agirliklari` alanıyla JSON çıktısına yazılır.
+
+`WBF Grid Search` benchmark'ı RT-DETR ve YOLO ham tespitlerini ayrı ayrı değerlendirerek genel ve sınıf bazlı mAP50 değerlerini otomatik üretir. Benchmark önerisi menüden onaylandığında IoU ve güven eşikleriyle birlikte bu metrikler de `config.yaml` içindeki dinamik ağırlıklandırma bölümüne kaydedilir.
 
 ### Çoklu Model Kurulum Gereksinimleri
 

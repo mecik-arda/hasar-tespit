@@ -4,6 +4,7 @@ import cv2
 import time
 import os
 import gc
+import math
 from pathlib import Path
 from colorama import Fore, Style, init
 
@@ -11,6 +12,11 @@ from src.utils import (
     PROJE_KOKU, YAPILANDIRMA_YOLU, EGITIM_KOKU, CIKARIM_KOKU, SINIF_RENKLERI,
     yapilandirma_yukle, yapilandirma_kaydet,
     _directml_cihazini_al, _openvino_kullanilabilir_mi,
+)
+from src.adaptive_tta import (
+    gorsel_kalitesini_analiz_et,
+    tta_tahminini_orijinale_tasi,
+    tta_varyantlarini_olustur,
 )
 
 init()
@@ -126,9 +132,11 @@ def hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=None, model=N
     cikti_klasoru = Path(cikti_klasoru)
     gorsel_kaydet = cikarim_ayari.get("gorsel_kaydet", True)
     tta_aktif = cikarim_ayari.get("tta_aktif", False)
+    tta_adaptif_ayar = cikarim_ayari.get("tta_adaptif", {})
     sinif_guven_esikleri = cikarim_ayari.get("sinif_guven_esikleri", {})
     sahi_aktif = cikarim_ayari.get("sahi_aktif", False)
     sahi_dilim_boyutu = cikarim_ayari.get("sahi_dilim_boyutu", 640)
+    sahi_adaptif_ayar = cikarim_ayari.get("sahi_adaptif", {})
     if json_kaydet is None:
         json_kaydet = cikarim_ayari.get("json_kaydet", True)
 
@@ -181,68 +189,90 @@ def hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=None, model=N
             print(f"{Fore.RED}[-] Gorsel okunamadi veya formati desteklenmiyor: {gorsel_yolu}{Style.RESET_ALL}")
             return None
 
-        if sahi_aktif:
-            sonuclar = _sahi_tarama(model, okunan_gorsel, guven_esigi=0.10, iou_esigi=iou_esigi, dilim_boyutu=sahi_dilim_boyutu)
-        else:
-            sonuclar = model.predict(
-                source=okunan_gorsel,
-                conf=0.10,
-                iou=iou_esigi,
-                save=False,
-                verbose=False,
-                augment=tta_aktif,
+        kalite_raporu = gorsel_kalitesini_analiz_et(okunan_gorsel, tta_adaptif_ayar)
+        if tta_adaptif_ayar.get("aktif", False) or tta_aktif:
+            tam_gorsel_tahminleri, tta_telemetrisi = _adaptif_tta_tarama(
+                model,
+                okunan_gorsel,
+                kalite_raporu,
+                tta_adaptif_ayar,
+                guven_esigi=0.10,
+                iou_esigi=iou_esigi,
+                zorla=tta_aktif,
             )
+        else:
+            tam_gorsel_tahminleri = _ultralytics_tahminlerini_standartlastir(
+                model.predict(
+                    source=okunan_gorsel,
+                    conf=0.10,
+                    iou=iou_esigi,
+                    save=False,
+                    verbose=False,
+                    augment=False,
+                )
+            )
+            tta_telemetrisi = {
+                "tta_tetiklendi": False,
+                "tta_nedeni": [],
+                "uygulanan_varyantlar": ["orijinal"],
+                "sinirda_guvenilirlik": bool(kalite_raporu.get("sinirda_guvenilirlik", False)),
+                "tta_ek_sure_ms": 0.0,
+            }
+        if sahi_aktif:
+            tahminler = _sahi_tarama(
+                model,
+                okunan_gorsel,
+                guven_esigi=0.10,
+                iou_esigi=iou_esigi,
+                dilim_boyutu=sahi_dilim_boyutu,
+                adaptif_ayar=sahi_adaptif_ayar,
+                siniflar=siniflar,
+                tam_gorsel_tahminleri=tam_gorsel_tahminleri,
+            )
+        else:
+            tahminler = tam_gorsel_tahminleri
     except Exception as hata:
         print(f"{Fore.RED}[-] Cikarim sirasinda hata: {hata}{Style.RESET_ALL}")
         return None
 
     gecen_sure = time.time() - baslangic_zamani
 
-    if not sonuclar or sonuclar[0].orig_img is None:
-        print(f"{Fore.RED}[-] Gorsel islenemedi: {gorsel_yolu}{Style.RESET_ALL}")
-        return None
-
-    gorsel = sonuclar[0].orig_img.copy()
+    gorsel = okunan_gorsel.copy()
 
     tespit_edilen_hasarlar = []
     sinif_sayaclari = {}
 
-    for sonuc in sonuclar:
-        kutucuklar = sonuc.boxes
-        if kutucuklar is None:
+    for tahmin in tahminler:
+        koordinat = tahmin["kutucuk"]
+        x1, y1, x2, y2 = koordinat["x1"], koordinat["y1"], koordinat["x2"], koordinat["y2"]
+        sinif_id = tahmin["sinif_id"]
+        guven = tahmin["guven"]
+
+        guncel_esik = sinif_guven_esikleri.get(sinif_id, guven_esigi)
+        if guven < guncel_esik:
             continue
-        for kutu in kutucuklar:
-            x1, y1, x2, y2 = kutu.xyxy[0].cpu().numpy().astype(int)
-            sinif_id = int(kutu.cls[0].cpu().numpy())
-            guven = float(kutu.conf[0].cpu().numpy())
 
-            guncel_esik = sinif_guven_esikleri.get(sinif_id, guven_esigi)
-            if guven < guncel_esik:
-                continue
+        sinif_adi = siniflar.get(sinif_id, f"Sinif_{sinif_id}")
+        renk = SINIF_RENKLERI.get(sinif_id, (255, 255, 255))
+        cv2.rectangle(gorsel, (x1, y1), (x2, y2), renk, 3)
 
-            sinif_adi = siniflar.get(sinif_id, f"Sinif_{sinif_id}")
+        etiket_metni = f"{sinif_adi} {guven:.2f}"
+        (metin_genislik, metin_yukseklik), _ = cv2.getTextSize(etiket_metni, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+        cv2.rectangle(gorsel, (x1, y1 - metin_yukseklik - 10), (x1 + metin_genislik, y1), renk, -1)
+        cv2.putText(gorsel, etiket_metni, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-            renk = SINIF_RENKLERI.get(sinif_id, (255, 255, 255))
-            cv2.rectangle(gorsel, (x1, y1), (x2, y2), renk, 3)
+        tespit_edilen_hasarlar.append({
+            "sinif_id": sinif_id,
+            "sinif_adi": sinif_adi,
+            "guven": round(guven, 4),
+            "kutucuk": koordinat,
+            "adaptif_sahi": tahmin.get("adaptif_sahi", False),
+            "sahi_dilim_boyutu": tahmin.get("sahi_dilim_boyutu"),
+            "adaptif_tta": tahmin.get("adaptif_tta", False),
+            "tta_varyanti": tahmin.get("tta_varyanti", "orijinal"),
+        })
 
-            etiket_metni = f"{sinif_adi} {guven:.2f}"
-            (metin_genislik, metin_yukseklik), _ = cv2.getTextSize(etiket_metni, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-            cv2.rectangle(gorsel, (x1, y1 - metin_yukseklik - 10), (x1 + metin_genislik, y1), renk, -1)
-            cv2.putText(gorsel, etiket_metni, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-
-            tespit_edilen_hasarlar.append({
-                "sinif_id": sinif_id,
-                "sinif_adi": sinif_adi,
-                "guven": round(guven, 4),
-                "kutucuk": {
-                    "x1": int(x1),
-                    "y1": int(y1),
-                    "x2": int(x2),
-                    "y2": int(y2),
-                },
-            })
-
-            sinif_sayaclari[sinif_adi] = sinif_sayaclari.get(sinif_adi, 0) + 1
+        sinif_sayaclari[sinif_adi] = sinif_sayaclari.get(sinif_adi, 0) + 1
 
     print()
     print(f"{Fore.GREEN}[+] Hasar tespiti tamamlandi!{Style.RESET_ALL}")
@@ -267,6 +297,10 @@ def hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=None, model=N
         "toplam_tespit": len(tespit_edilen_hasarlar),
         "hasar_dagilimi": sinif_sayaclari,
         "tespitler": tespit_edilen_hasarlar,
+        "kalite_telemetrisi": {
+            **kalite_raporu,
+            **tta_telemetrisi,
+        },
     }
 
     if gorsel_kaydet:
@@ -426,7 +460,12 @@ def toplu_hasar_tespiti_yap(girdi_klasoru, cikti_klasoru, miktar):
 
 
 def _ram_havuzu_olustur():
-    return {"boxes": [], "masks": []}
+    return {
+        "boxes": [],
+        "masks": [],
+        "kalite_telemetrisi": None,
+        "tta_model_telemetrisi": {},
+    }
 
 
 def _model_bosalt(ram_optimizasyonu=True):
@@ -442,8 +481,8 @@ def _model_bosalt(ram_optimizasyonu=True):
 
 def _tek_model_tara(model_sinifi, model_yolu, kaynak_etiketi, gorsel, tespitler_havuzu,
                     guven_esigi, iou_esigi, sinif_guven_esikleri, siniflar,
-                    sahi_aktif, sahi_dilim_boyutu, otomatik_yedekleme, ram_optimizasyonu,
-                    hazir_model=None):
+                    sahi_aktif, sahi_dilim_boyutu, sahi_adaptif_ayar, otomatik_yedekleme, ram_optimizasyonu,
+                    hazir_model=None, tta_ayar=None, kalite_raporu=None, tta_zorla=False):
     """Tek bir modeli yukler, gorseli tarar, kutulari havuza ekler, modeli bosaltir.
 
     Returns:
@@ -471,32 +510,63 @@ def _tek_model_tara(model_sinifi, model_yolu, kaynak_etiketi, gorsel, tespitler_
                 else:
                     raise
 
-        if sahi_aktif:
-            sonuclar = _sahi_tarama(model, gorsel, guven_esigi=0.10, iou_esigi=iou_esigi, dilim_boyutu=sahi_dilim_boyutu)
-        else:
-            sonuclar = model.predict(
-                source=gorsel, conf=0.10, iou=iou_esigi, save=False, verbose=False,
+        tta_ayar = tta_ayar or {}
+        kalite_raporu = kalite_raporu or gorsel_kalitesini_analiz_et(gorsel, tta_ayar)
+        tespitler_havuzu["kalite_telemetrisi"] = kalite_raporu
+        if tta_ayar.get("aktif", False) or tta_zorla:
+            tam_gorsel_tahminleri, tta_telemetrisi = _adaptif_tta_tarama(
+                model,
+                gorsel,
+                kalite_raporu,
+                tta_ayar,
+                guven_esigi=0.10,
+                iou_esigi=iou_esigi,
+                zorla=tta_zorla,
             )
+        else:
+            tam_gorsel_tahminleri = _ultralytics_tahminlerini_standartlastir(
+                model.predict(
+                    source=gorsel, conf=0.10, iou=iou_esigi, save=False, verbose=False,
+                )
+            )
+            tta_telemetrisi = {
+                "tta_tetiklendi": False,
+                "tta_nedeni": [],
+                "uygulanan_varyantlar": ["orijinal"],
+                "tta_ek_sure_ms": 0.0,
+            }
+        tespitler_havuzu["tta_model_telemetrisi"][kaynak_etiketi] = tta_telemetrisi
+        if sahi_aktif:
+            tahminler = _sahi_tarama(
+                model,
+                gorsel,
+                guven_esigi=0.10,
+                iou_esigi=iou_esigi,
+                dilim_boyutu=sahi_dilim_boyutu,
+                adaptif_ayar=sahi_adaptif_ayar,
+                siniflar=siniflar,
+                tam_gorsel_tahminleri=tam_gorsel_tahminleri,
+            )
+        else:
+            tahminler = tam_gorsel_tahminleri
 
-        for sonuc in sonuclar:
-            if sonuc.boxes is None:
+        for tahmin in tahminler:
+            sinif_id = tahmin["sinif_id"]
+            guven = tahmin["guven"]
+            guncel_esik = sinif_guven_esikleri.get(sinif_id, guven_esigi)
+            if guven < guncel_esik:
                 continue
-            for kutu in sonuc.boxes:
-                x1, y1, x2, y2 = kutu.xyxy[0].cpu().numpy().astype(int)
-                sinif_id = int(kutu.cls[0].cpu().numpy())
-                guven = float(kutu.conf[0].cpu().numpy())
-                guncel_esik = sinif_guven_esikleri.get(sinif_id, guven_esigi)
-                if guven < guncel_esik:
-                    continue
-                sinif_adi = siniflar.get(sinif_id, f"Sinif_{sinif_id}")
-                tespitler_havuzu["boxes"].append({
-                    "sinif_id": sinif_id,
-                    "sinif_adi": sinif_adi,
-                    "guven": round(guven, 4),
-                    "kutucuk": {"x1": int(x1), "y1": int(y1), "x2": int(x2), "y2": int(y2)},
-                    "kaynak_model": kaynak_etiketi,
-                })
-                eklenen += 1
+            sinif_adi = siniflar.get(sinif_id, f"Sinif_{sinif_id}")
+            tespitler_havuzu["boxes"].append({
+                "sinif_id": sinif_id,
+                "sinif_adi": sinif_adi,
+                "guven": round(guven, 4),
+                "kutucuk": tahmin["kutucuk"],
+                "kaynak_model": kaynak_etiketi,
+                "adaptif_sahi": tahmin.get("adaptif_sahi", False),
+                "sahi_dilim_boyutu": tahmin.get("sahi_dilim_boyutu"),
+            })
+            eklenen += 1
 
         if model_sahibi:
             del model
@@ -517,6 +587,75 @@ def _wbf_sinif_adi_bul(sinif_id, tespitler_havuzu, yapilandirma=None):
         if kutu.get("sinif_id") == sinif_id and "sinif_adi" in kutu:
             return kutu["sinif_adi"]
     return f"Sinif_{sinif_id}"
+
+
+def _wbf_metrik_degerini_normalize_et(deger):
+    try:
+        metrik = float(deger)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(metrik):
+        return None
+    if 1.0 < metrik <= 100.0:
+        metrik /= 100.0
+    if metrik < 0.0 or metrik > 1.0:
+        return None
+    return metrik
+
+
+def _wbf_model_metrigini_al(model_ayari, sinif_adi):
+    if not isinstance(model_ayari, dict):
+        return _wbf_metrik_degerini_normalize_et(model_ayari)
+    sinif_metrikleri = model_ayari.get("siniflar", {})
+    if isinstance(sinif_metrikleri, dict) and sinif_adi in sinif_metrikleri:
+        sinif_metrigi = _wbf_metrik_degerini_normalize_et(sinif_metrikleri[sinif_adi])
+        if sinif_metrigi is not None:
+            return sinif_metrigi
+    return _wbf_metrik_degerini_normalize_et(model_ayari.get("genel"))
+
+
+def _wbf_sabit_agirliklarini_al(sinif_adi, model_isimleri, yapilandirma):
+    sinif_agirliklari = yapilandirma.get("multi_model", {}).get("wbf_sinif_agirliklari", {})
+    if sinif_adi not in sinif_agirliklari:
+        return None
+    agirlik_ayari = sinif_agirliklari[sinif_adi]
+    return [float(agirlik_ayari.get(model_adi, 1.0)) for model_adi in model_isimleri]
+
+
+def _wbf_model_agirliklarini_hesapla(sinif_adi, model_isimleri, yapilandirma):
+    sabit_agirliklar = _wbf_sabit_agirliklarini_al(sinif_adi, model_isimleri, yapilandirma)
+    dinamik_ayar = yapilandirma.get("multi_model", {}).get("wbf_dinamik_agirliklandirma", {})
+    if not dinamik_ayar.get("aktif", False):
+        return sabit_agirliklar
+
+    model_metrikleri = dinamik_ayar.get("model_metrikleri", {})
+    metrikler = {
+        model_adi: _wbf_model_metrigini_al(model_metrikleri.get(model_adi), sinif_adi)
+        for model_adi in model_isimleri
+    }
+    gecerli_metrikler = [metrik for metrik in metrikler.values() if metrik is not None and metrik > 0.0]
+    if not gecerli_metrikler:
+        return sabit_agirliklar
+
+    try:
+        asgari_agirlik = max(0.01, float(dinamik_ayar.get("asgari_agirlik", 1.0)))
+        azami_agirlik = max(asgari_agirlik, float(dinamik_ayar.get("azami_agirlik", 2.5)))
+        duyarlilik = max(0.1, float(dinamik_ayar.get("duyarlilik", 4.0)))
+    except (TypeError, ValueError):
+        return sabit_agirliklar
+
+    en_yuksek_metrik = max(gecerli_metrikler)
+    hesaplanan_agirliklar = []
+    for indeks, model_adi in enumerate(model_isimleri):
+        metrik = metrikler[model_adi]
+        if metrik is None or metrik <= 0.0:
+            yedek_agirlik = sabit_agirliklar[indeks] if sabit_agirliklar is not None else 1.0
+            hesaplanan_agirliklar.append(yedek_agirlik)
+            continue
+        basari_orani = min(1.0, metrik / en_yuksek_metrik)
+        agirlik = asgari_agirlik + (basari_orani ** duyarlilik) * (azami_agirlik - asgari_agirlik)
+        hesaplanan_agirliklar.append(round(agirlik, 6))
+    return hesaplanan_agirliklar
 
 
 def _wbf_kutu_birlestir(tespitler_havuzu, gorsel_genisligi, gorsel_yuksekligi, iou_esigi=0.55, guven_esigi=0.25, yapilandirma=None):
@@ -540,8 +679,6 @@ def _wbf_kutu_birlestir(tespitler_havuzu, gorsel_genisligi, gorsel_yuksekligi, i
         from src.utils import yapilandirma_yukle
         yapilandirma = yapilandirma_yukle()
 
-    wbf_agirliklari = yapilandirma.get("multi_model", {}).get("wbf_sinif_agirliklari", {})
-
     tum_siniflar = set()
     for kutu_bilgisi in tespitler_havuzu["boxes"]:
         tum_siniflar.add(int(kutu_bilgisi.get("sinif_id", 0)))
@@ -552,10 +689,7 @@ def _wbf_kutu_birlestir(tespitler_havuzu, gorsel_genisligi, gorsel_yuksekligi, i
     for sinif_id in tum_siniflar:
         sinif_adi = _wbf_sinif_adi_bul(sinif_id, tespitler_havuzu, yapilandirma=yapilandirma)
 
-        agirlik_listesi = None
-        if sinif_adi in wbf_agirliklari:
-            agirlik_dict = wbf_agirliklari[sinif_adi]
-            agirlik_listesi = [float(agirlik_dict.get(m, 1.0)) for m in model_isimleri]
+        agirlik_listesi = _wbf_model_agirliklarini_hesapla(sinif_adi, model_isimleri, yapilandirma)
 
         kutu_listeleri = []
         skor_listeleri = []
@@ -614,63 +748,229 @@ def _wbf_kutu_birlestir(tespitler_havuzu, gorsel_genisligi, gorsel_yuksekligi, i
                 "kutucuk": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
                 "kaynak_model": "wbf",
                 "wbf_birlestirildi": True,
+                "wbf_model_agirliklari": {
+                    model_adi: agirlik_listesi[indeks] if agirlik_listesi is not None else 1.0
+                    for indeks, model_adi in enumerate(model_isimleri)
+                },
             })
 
     return sonuc_kutular
 
 
-def _sahi_tarama(model, gorsel, guven_esigi=0.10, iou_esigi=0.7, dilim_boyutu=None):
+def _ultralytics_tahminlerini_standartlastir(sonuclar):
+    tahminler = []
+    for sonuc in sonuclar or []:
+        if sonuc.boxes is None:
+            continue
+        for kutu in sonuc.boxes:
+            x1, y1, x2, y2 = kutu.xyxy[0].cpu().numpy().astype(int)
+            tahminler.append({
+                "sinif_id": int(kutu.cls[0].cpu().numpy()),
+                "guven": float(kutu.conf[0].cpu().numpy()),
+                "kutucuk": {"x1": int(x1), "y1": int(y1), "x2": int(x2), "y2": int(y2)},
+                "adaptif_sahi": False,
+                "sahi_dilim_boyutu": None,
+            })
+    return tahminler
+
+
+def _adaptif_tta_tarama(model, gorsel, kalite_raporu, tta_ayar, guven_esigi=0.10, iou_esigi=0.7, zorla=False):
+    baslangic = time.perf_counter()
+    yukseklik, genislik = gorsel.shape[:2]
+    varyantlar = tta_varyantlarini_olustur(gorsel, kalite_raporu, tta_ayar, zorla=zorla)
+    tum_tahminler = []
+    orijinal_cikarim_suresi = 0.0
+    for varyant_indeksi, varyant in enumerate(varyantlar):
+        varyant_baslangici = time.perf_counter()
+        sonuclar = model.predict(
+            source=varyant["gorsel"],
+            conf=guven_esigi,
+            iou=iou_esigi,
+            save=False,
+            verbose=False,
+            augment=False,
+        )
+        standart_tahminler = _ultralytics_tahminlerini_standartlastir(sonuclar)
+        tum_tahminler.extend(
+            tta_tahminini_orijinale_tasi(tahmin, varyant, genislik, yukseklik)
+            for tahmin in standart_tahminler
+        )
+        if varyant_indeksi == 0:
+            orijinal_cikarim_suresi = time.perf_counter() - varyant_baslangici
+    model_ici_iou = max(0.0, min(1.0, float(tta_ayar.get("model_ici_iou_esigi", 0.55))))
+    birlesmis = _sinif_bazli_tahmin_birlestir(tum_tahminler, model_ici_iou)
+    tta_tetiklendi = len(varyantlar) > 1
+    nedenler = list(kalite_raporu.get("tta_nedeni", []))
+    if tta_tetiklendi and zorla and not nedenler:
+        nedenler = ["manuel"]
+    toplam_tta_suresi = time.perf_counter() - baslangic
+    telemetri = {
+        "tta_tetiklendi": tta_tetiklendi,
+        "tta_nedeni": nedenler,
+        "uygulanan_varyantlar": [varyant["ad"] for varyant in varyantlar],
+        "sinirda_guvenilirlik": bool(kalite_raporu.get("sinirda_guvenilirlik", False)),
+        "tta_ek_sure_ms": round(max(0.0, toplam_tta_suresi - orijinal_cikarim_suresi) * 1000.0, 4),
+    }
+    return birlesmis, telemetri
+
+
+def _sahi_tahminlerini_standartlastir(nesne_tahminleri, hedef_sinif_idleri, dilim_boyutu):
+    tahminler = []
+    for nesne_tahmini in nesne_tahminleri:
+        kategori = getattr(nesne_tahmini, "category", None)
+        sinif_id = getattr(kategori, "id", getattr(nesne_tahmini, "category_id", None))
+        if sinif_id is None:
+            continue
+        sinif_id = int(sinif_id)
+        if hedef_sinif_idleri is not None and sinif_id not in hedef_sinif_idleri:
+            continue
+        skor = getattr(nesne_tahmini, "score", None)
+        guven = getattr(skor, "value", skor)
+        kutu = nesne_tahmini.bbox.to_xyxy()
+        tahminler.append({
+            "sinif_id": sinif_id,
+            "guven": float(guven),
+            "kutucuk": {
+                "x1": int(round(kutu[0])),
+                "y1": int(round(kutu[1])),
+                "x2": int(round(kutu[2])),
+                "y2": int(round(kutu[3])),
+            },
+            "adaptif_sahi": True,
+            "sahi_dilim_boyutu": dilim_boyutu,
+        })
+    return tahminler
+
+
+def _tahmin_iou_hesapla(birinci, ikinci):
+    birinci_kutu = birinci["kutucuk"]
+    ikinci_kutu = ikinci["kutucuk"]
+    x1 = max(birinci_kutu["x1"], ikinci_kutu["x1"])
+    y1 = max(birinci_kutu["y1"], ikinci_kutu["y1"])
+    x2 = min(birinci_kutu["x2"], ikinci_kutu["x2"])
+    y2 = min(birinci_kutu["y2"], ikinci_kutu["y2"])
+    kesisim = max(0, x2 - x1) * max(0, y2 - y1)
+    birinci_alan = max(0, birinci_kutu["x2"] - birinci_kutu["x1"]) * max(0, birinci_kutu["y2"] - birinci_kutu["y1"])
+    ikinci_alan = max(0, ikinci_kutu["x2"] - ikinci_kutu["x1"]) * max(0, ikinci_kutu["y2"] - ikinci_kutu["y1"])
+    birlesim = birinci_alan + ikinci_alan - kesisim
+    return kesisim / birlesim if birlesim > 0 else 0.0
+
+
+def _sinif_bazli_tahmin_birlestir(tahminler, iou_esigi):
+    birlesmis = []
+    sinif_idleri = sorted({tahmin["sinif_id"] for tahmin in tahminler})
+    for sinif_id in sinif_idleri:
+        adaylar = sorted(
+            [tahmin for tahmin in tahminler if tahmin["sinif_id"] == sinif_id],
+            key=lambda tahmin: tahmin["guven"],
+            reverse=True,
+        )
+        while adaylar:
+            secilen = adaylar.pop(0)
+            birlesmis.append(secilen)
+            adaylar = [aday for aday in adaylar if _tahmin_iou_hesapla(secilen, aday) < iou_esigi]
+    return sorted(birlesmis, key=lambda tahmin: tahmin["guven"], reverse=True)
+
+
+def _adaptif_sahi_dilim_boyutunu_hesapla(gorsel, dilim_boyutu, adaptif_ayar):
+    yukseklik, genislik = gorsel.shape[:2]
+    if not adaptif_ayar.get("aktif", False):
+        sabit_boyut = int(dilim_boyutu or min(genislik, yukseklik, 640))
+        return min(sabit_boyut, genislik, yukseklik)
+
+    try:
+        minimum_uzun_kenar = max(1, int(adaptif_ayar.get("minimum_uzun_kenar", 1024)))
+        dilim_orani = min(1.0, max(0.1, float(adaptif_ayar.get("dilim_orani", 0.5))))
+        asgari_boyut = max(32, int(adaptif_ayar.get("asgari_dilim_boyutu", 384)))
+        azami_boyut = max(asgari_boyut, int(adaptif_ayar.get("azami_dilim_boyutu", 768)))
+    except (TypeError, ValueError):
+        return None
+
+    if max(genislik, yukseklik) < minimum_uzun_kenar:
+        return None
+    hesaplanan = int(round(min(genislik, yukseklik) * dilim_orani / 32.0) * 32)
+    hesaplanan = min(azami_boyut, max(asgari_boyut, hesaplanan), genislik, yukseklik)
+    if hesaplanan >= genislik and hesaplanan >= yukseklik:
+        return None
+    return hesaplanan
+
+
+def _sahi_hedef_sinif_idlerini_al(siniflar, adaptif_ayar):
+    if not adaptif_ayar.get("aktif", False):
+        return None
+    hedef_siniflar = {str(sinif_adi).casefold() for sinif_adi in adaptif_ayar.get("hedef_siniflar", ["Cizik", "Pas"])}
+    return {
+        int(sinif_id)
+        for sinif_id, sinif_adi in siniflar.items()
+        if str(sinif_adi).casefold() in hedef_siniflar
+    }
+
+
+def _sahi_tarama(model, gorsel, guven_esigi=0.10, iou_esigi=0.7, dilim_boyutu=None, adaptif_ayar=None, siniflar=None, tam_gorsel_tahminleri=None):
+    adaptif_ayar = adaptif_ayar or {}
+    siniflar = siniflar or {}
+    if tam_gorsel_tahminleri is None:
+        tam_gorsel_tahminleri = _ultralytics_tahminlerini_standartlastir(model.predict(
+            source=gorsel,
+            conf=guven_esigi,
+            iou=iou_esigi,
+            save=False,
+            verbose=False,
+        ))
+    hesaplanan_dilim_boyutu = _adaptif_sahi_dilim_boyutunu_hesapla(gorsel, dilim_boyutu, adaptif_ayar)
+    hedef_sinif_idleri = _sahi_hedef_sinif_idlerini_al(siniflar, adaptif_ayar)
+    if hesaplanan_dilim_boyutu is None or hedef_sinif_idleri == set():
+        return tam_gorsel_tahminleri
+
     try:
         from sahi import AutoDetectionModel
         from sahi.predict import get_sliced_prediction
     except ImportError:
-        return model.predict(
-            source=gorsel,
-            conf=guven_esigi,
-            iou=iou_esigi,
-            save=False,
-            verbose=False,
-        )
+        return tam_gorsel_tahminleri
 
     try:
-        detection_model = AutoDetectionModel.from_ultralytics(
-            model,
-            confidence_threshold=guven_esigi,
-        )
-        if dilim_boyutu is None:
-            yukseklik, genislik = gorsel.shape[:2]
-            dilim_boyutu = min(genislik, yukseklik, 640)
-
-        sonuclar = get_sliced_prediction(
+        bindirme_orani = min(0.5, max(0.0, float(adaptif_ayar.get("bindirme_orani", 0.2))))
+        birlestirme_iou_esigi = min(1.0, max(0.0, float(adaptif_ayar.get("birlestirme_iou_esigi", 0.5))))
+        detection_model = getattr(model, "_hades_sahi_detection_model", None)
+        if detection_model is None:
+            detection_model = AutoDetectionModel.from_pretrained(
+                model_type="ultralytics",
+                model=model,
+                confidence_threshold=guven_esigi,
+            )
+            setattr(model, "_hades_sahi_detection_model", detection_model)
+        else:
+            detection_model.confidence_threshold = guven_esigi
+        tum_sinif_idleri = {int(sinif_id) for sinif_id in siniflar}
+        haric_sinif_idleri = sorted(tum_sinif_idleri - hedef_sinif_idleri) if hedef_sinif_idleri is not None else None
+        sahi_sonucu = get_sliced_prediction(
             gorsel,
             detection_model,
-            slice_height=dilim_boyutu,
-            slice_width=dilim_boyutu,
-            overlap_height_ratio=0.2,
-            overlap_width_ratio=0.2,
+            slice_height=hesaplanan_dilim_boyutu,
+            slice_width=hesaplanan_dilim_boyutu,
+            overlap_height_ratio=bindirme_orani,
+            overlap_width_ratio=bindirme_orani,
+            perform_standard_pred=False,
             postprocess_type="NMS",
             postprocess_match_metric="IOU",
-            postprocess_match_threshold=iou_esigi,
+            postprocess_match_threshold=birlestirme_iou_esigi,
+            exclude_classes_by_id=haric_sinif_idleri,
             verbose=0,
         )
-        return sonuclar
-    except ImportError:
-        return model.predict(
-            source=gorsel,
-            conf=guven_esigi,
-            iou=iou_esigi,
-            save=False,
-            verbose=False,
+        dilimli_tahminler = _sahi_tahminlerini_standartlastir(
+            sahi_sonucu.object_prediction_list,
+            hedef_sinif_idleri,
+            hesaplanan_dilim_boyutu,
         )
+        if hedef_sinif_idleri is None:
+            return _sinif_bazli_tahmin_birlestir(tam_gorsel_tahminleri + dilimli_tahminler, birlestirme_iou_esigi)
+        hedef_tam_gorsel = [tahmin for tahmin in tam_gorsel_tahminleri if tahmin["sinif_id"] in hedef_sinif_idleri]
+        diger_tam_gorsel = [tahmin for tahmin in tam_gorsel_tahminleri if tahmin["sinif_id"] not in hedef_sinif_idleri]
+        hedef_birlesmis = _sinif_bazli_tahmin_birlestir(hedef_tam_gorsel + dilimli_tahminler, birlestirme_iou_esigi)
+        return sorted(diger_tam_gorsel + hedef_birlesmis, key=lambda tahmin: tahmin["guven"], reverse=True)
     except Exception as hata:
-        print(f"{Fore.YELLOW}[!] SAHI tarama basarisiz, fallback: {hata}{Style.RESET_ALL}")
-        return model.predict(
-            source=gorsel,
-            conf=guven_esigi,
-            iou=iou_esigi,
-            save=False,
-            verbose=False,
-        )
+        print(f"{Fore.YELLOW}[!] SAHI tarama basarisiz, tam gorsel sonucuna donuluyor: {hata}{Style.RESET_ALL}")
+        return tam_gorsel_tahminleri
 
 
 def coklu_model_hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=None, yapilandirma=None, hazir_modeller=None):
@@ -691,6 +991,9 @@ def coklu_model_hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=N
     sinif_guven_esikleri = cikarim_ayari.get("sinif_guven_esikleri", {})
     sahi_aktif = cikarim_ayari.get("sahi_aktif", False)
     sahi_dilim_boyutu = cikarim_ayari.get("sahi_dilim_boyutu", 640)
+    sahi_adaptif_ayar = cikarim_ayari.get("sahi_adaptif", {})
+    tta_aktif = cikarim_ayari.get("tta_aktif", False)
+    tta_adaptif_ayar = cikarim_ayari.get("tta_adaptif", {})
     max_sam_boxes = cikarim_ayari.get("max_sam_boxes", 20)
 
     if cikti_klasoru is None:
@@ -716,6 +1019,7 @@ def coklu_model_hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=N
     if gorsel is None:
         print(f"{Fore.RED}[-] Gorsel okunamadi: {gorsel_yolu}{Style.RESET_ALL}")
         return None
+    kalite_raporu = gorsel_kalitesini_analiz_et(gorsel, tta_adaptif_ayar)
 
     baslik_aktif = hazir_modeller is None
     if baslik_aktif:
@@ -753,8 +1057,11 @@ def coklu_model_hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=N
         rtdetr_eklenen = _tek_model_tara(
             RTDETR, rtdetr_model_yolu, "rt-detr-v2-x", gorsel, tespitler_havuzu,
             guven_esigi, iou_esigi, sinif_guven_esikleri, siniflar,
-            sahi_aktif, sahi_dilim_boyutu, otomatik_yedekleme, ram_optimizasyonu,
+            sahi_aktif, sahi_dilim_boyutu, sahi_adaptif_ayar, otomatik_yedekleme, ram_optimizasyonu,
             hazir_model=hazir_modeller.get("rtdetr"),
+            tta_ayar=tta_adaptif_ayar,
+            kalite_raporu=kalite_raporu,
+            tta_zorla=tta_aktif,
         )
         print(f"{Fore.GREEN}[+] RT-DETRv2-X Taramasi... [Bitti] ({rtdetr_eklenen} tespit){Style.RESET_ALL}")
     else:
@@ -773,8 +1080,11 @@ def coklu_model_hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=N
         yolo_eklenen = _tek_model_tara(
             YOLO, yolo_model_yolu, "yolov12x", gorsel, tespitler_havuzu,
             guven_esigi, iou_esigi, sinif_guven_esikleri, siniflar,
-            sahi_aktif, sahi_dilim_boyutu, otomatik_yedekleme, ram_optimizasyonu,
+            sahi_aktif, sahi_dilim_boyutu, sahi_adaptif_ayar, otomatik_yedekleme, ram_optimizasyonu,
             hazir_model=hazir_modeller.get("yolo"),
+            tta_ayar=tta_adaptif_ayar,
+            kalite_raporu=kalite_raporu,
+            tta_zorla=tta_aktif,
         )
         print(f"{Fore.GREEN}[+] YOLOv12x Taramasi... [Bitti] ({yolo_eklenen} tespit){Style.RESET_ALL}")
     else:
@@ -922,6 +1232,28 @@ def coklu_model_hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=N
         "hasar_dagilimi": sinif_sayaclari,
         "tespitler": dogrulanmis_tespitler,
         "maskeler": tespitler_havuzu.get("masks", []),
+        "kalite_telemetrisi": {
+            **kalite_raporu,
+            "tta_tetiklendi": any(
+                telemetri.get("tta_tetiklendi", False)
+                for telemetri in tespitler_havuzu.get("tta_model_telemetrisi", {}).values()
+            ),
+            "uygulanan_varyantlar": sorted({
+                varyant
+                for telemetri in tespitler_havuzu.get("tta_model_telemetrisi", {}).values()
+                for varyant in telemetri.get("uygulanan_varyantlar", [])
+            }),
+            "tta_nedeni": sorted({
+                neden
+                for telemetri in tespitler_havuzu.get("tta_model_telemetrisi", {}).values()
+                for neden in telemetri.get("tta_nedeni", [])
+            }),
+            "tta_ek_sure_ms": round(sum(
+                float(telemetri.get("tta_ek_sure_ms", 0.0))
+                for telemetri in tespitler_havuzu.get("tta_model_telemetrisi", {}).values()
+            ), 4),
+            "model_telemetrisi": tespitler_havuzu.get("tta_model_telemetrisi", {}),
+        },
     }
 
     if gorsel_kaydet:
@@ -1032,6 +1364,11 @@ def coklu_model_toplu_tespiti_yap(girdi_klasoru, cikti_klasoru, miktar, yapiland
 
                         if gorsel_yolu not in chunk_havuzlari:
                             chunk_havuzlari[gorsel_yolu] = _ram_havuzu_olustur()
+                        if chunk_havuzlari[gorsel_yolu].get("kalite_telemetrisi") is None:
+                            chunk_havuzlari[gorsel_yolu]["kalite_telemetrisi"] = gorsel_kalitesini_analiz_et(
+                                gorsel,
+                                yapilandirma.get("cikarim", {}).get("tta_adaptif", {}),
+                            )
 
                         _tek_model_tara(
                             RTDETR, rtdetr_model_yolu, "rt-detr-v2-x", gorsel, chunk_havuzlari[gorsel_yolu],
@@ -1041,8 +1378,12 @@ def coklu_model_toplu_tespiti_yap(girdi_klasoru, cikti_klasoru, miktar, yapiland
                             yapilandirma.get("siniflar", {}),
                             yapilandirma.get("cikarim", {}).get("sahi_aktif", False),
                             yapilandirma.get("cikarim", {}).get("sahi_dilim_boyutu", 640),
+                            yapilandirma.get("cikarim", {}).get("sahi_adaptif", {}),
                             yapilandirma.get("multi_model", {}).get("otomatik_yedekleme_cpu", True),
                             yapilandirma.get("multi_model", {}).get("ram_optimizasyonu", True),
+                            tta_ayar=yapilandirma.get("cikarim", {}).get("tta_adaptif", {}),
+                            kalite_raporu=chunk_havuzlari[gorsel_yolu].get("kalite_telemetrisi"),
+                            tta_zorla=yapilandirma.get("cikarim", {}).get("tta_aktif", False),
                         )
                     except Exception as hata:
                         print(f"{Fore.YELLOW}[!] {gorsel_yolu.name} RT-DETR hatası, atlanıyor: {hata}{Style.RESET_ALL}")
@@ -1078,6 +1419,11 @@ def coklu_model_toplu_tespiti_yap(girdi_klasoru, cikti_klasoru, miktar, yapiland
 
                         if gorsel_yolu not in chunk_havuzlari:
                             chunk_havuzlari[gorsel_yolu] = _ram_havuzu_olustur()
+                        if chunk_havuzlari[gorsel_yolu].get("kalite_telemetrisi") is None:
+                            chunk_havuzlari[gorsel_yolu]["kalite_telemetrisi"] = gorsel_kalitesini_analiz_et(
+                                gorsel,
+                                yapilandirma.get("cikarim", {}).get("tta_adaptif", {}),
+                            )
 
                         _tek_model_tara(
                             YOLO, yolo_model_yolu, "yolov12x", gorsel, chunk_havuzlari[gorsel_yolu],
@@ -1087,8 +1433,12 @@ def coklu_model_toplu_tespiti_yap(girdi_klasoru, cikti_klasoru, miktar, yapiland
                             yapilandirma.get("siniflar", {}),
                             yapilandirma.get("cikarim", {}).get("sahi_aktif", False),
                             yapilandirma.get("cikarim", {}).get("sahi_dilim_boyutu", 640),
+                            yapilandirma.get("cikarim", {}).get("sahi_adaptif", {}),
                             yapilandirma.get("multi_model", {}).get("otomatik_yedekleme_cpu", True),
                             yapilandirma.get("multi_model", {}).get("ram_optimizasyonu", True),
+                            tta_ayar=yapilandirma.get("cikarim", {}).get("tta_adaptif", {}),
+                            kalite_raporu=chunk_havuzlari[gorsel_yolu].get("kalite_telemetrisi"),
+                            tta_zorla=yapilandirma.get("cikarim", {}).get("tta_aktif", False),
                         )
                     except Exception as hata:
                         print(f"{Fore.YELLOW}[!] {gorsel_yolu.name} YOLO hatası, atlanıyor: {hata}{Style.RESET_ALL}")
@@ -1203,6 +1553,28 @@ def coklu_model_toplu_tespiti_yap(girdi_klasoru, cikti_klasoru, miktar, yapiland
                 "maske_sayisi": len(havuz.get("masks", [])),
                 "hasar_dagilimi": sinif_sayaclari_gorsel,
                 "gecen_sure_saniye": 0,
+                "kalite_telemetrisi": {
+                    **(havuz.get("kalite_telemetrisi") or {}),
+                    "tta_tetiklendi": any(
+                        telemetri.get("tta_tetiklendi", False)
+                        for telemetri in havuz.get("tta_model_telemetrisi", {}).values()
+                    ),
+                    "uygulanan_varyantlar": sorted({
+                        varyant
+                        for telemetri in havuz.get("tta_model_telemetrisi", {}).values()
+                        for varyant in telemetri.get("uygulanan_varyantlar", [])
+                    }),
+                    "tta_nedeni": sorted({
+                        neden
+                        for telemetri in havuz.get("tta_model_telemetrisi", {}).values()
+                        for neden in telemetri.get("tta_nedeni", [])
+                    }),
+                    "tta_ek_sure_ms": round(sum(
+                        float(telemetri.get("tta_ek_sure_ms", 0.0))
+                        for telemetri in havuz.get("tta_model_telemetrisi", {}).values()
+                    ), 4),
+                    "model_telemetrisi": havuz.get("tta_model_telemetrisi", {}),
+                },
             })
 
             try:

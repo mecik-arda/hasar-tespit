@@ -30,3 +30,4 @@ timm>=1.0.0
 # SAM 2 desteği ultralytics paketine dahildir.
 # WBF (Weighted Boxes Fusion) kutu birlestirme:
 ensemble-boxes>=1.0.9
+sahi>=0.11.36,<0.12

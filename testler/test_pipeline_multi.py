@@ -100,6 +100,14 @@ class PipelineMultiModelTesti(unittest.TestCase):
         self.assertIn("yolo", agirliklar)
         self.assertIn("sam", agirliklar)
 
+    def test_config_dinamik_wbf_gecerli(self):
+        ayar = self.yapilandirma.get("multi_model", {}).get("wbf_dinamik_agirliklandirma", {})
+        self.assertTrue(ayar.get("aktif"))
+        self.assertEqual(ayar.get("metrik_adi"), "mAP50")
+        self.assertEqual(ayar.get("azami_agirlik"), 2.5)
+        self.assertIn("rt-detr-v2-x", ayar.get("model_metrikleri", {}))
+        self.assertIn("yolov12x", ayar.get("model_metrikleri", {}))
+
     def test_coklu_model_hasar_tespiti_fonksiyonu_mevcut(self):
         from src.pipeline import coklu_model_hasar_tespiti_yap
         self.assertTrue(callable(coklu_model_hasar_tespiti_yap))

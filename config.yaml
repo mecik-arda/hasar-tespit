@@ -50,6 +50,37 @@ cikarim:
   gorsel_kaydet: true
   json_kaydet: true
   tta_aktif: false
+  tta_adaptif:
+    aktif: true
+    analiz_uzun_kenar: 640
+    karanlik_medyan_esigi: 55
+    parlak_medyan_esigi: 205
+    siyah_piksel_esigi: 15
+    beyaz_piksel_esigi: 245
+    siyaha_kirpma_orani_esigi: 0.2
+    beyaza_kirpma_orani_esigi: 0.12
+    laplacian_referansi: 180
+    tenengrad_referansi: 1800
+    kenar_yogunlugu_referansi: 0.08
+    minimum_netlik_analiz_kontrasti: 8
+    minimum_netlik_analiz_kenar_orani: 0.005
+    netlik_skoru_esigi: 0.42
+    agir_bulaniklik_esigi: 0.18
+    canny_alt_esik: 60
+    canny_ust_esik: 180
+    gamma: 0.7
+    parlaklik_gamma: 1.25
+    clahe_clip_limiti: 2.0
+    clahe_izgara_boyutu: 8
+    yuksek_olcek: 1.25
+    yatay_cevirme: true
+    azami_varyant: 3
+    model_ici_iou_esigi: 0.55
+    kalibrasyon:
+      minimum_map50_artisi: 0.02
+      guven_duzeyi: 0.95
+      bootstrap_tekrari: 1000
+      azami_gecikme_artisi_yuzdesi: 200
   sinif_guven_esikleri:
     0: 0.3
     1: 0.2
@@ -58,8 +89,19 @@ cikarim:
     4: 0.35
     5: 0.4
     6: 0.4
-  sahi_aktif: false
+  sahi_aktif: true
   sahi_dilim_boyutu: 640
+  sahi_adaptif:
+    aktif: true
+    hedef_siniflar:
+    - Cizik
+    - Pas
+    minimum_uzun_kenar: 1024
+    dilim_orani: 0.5
+    asgari_dilim_boyutu: 384
+    azami_dilim_boyutu: 768
+    bindirme_orani: 0.2
+    birlestirme_iou_esigi: 0.5
   max_sam_boxes: 20
 siniflar:
   0: Cizik
@@ -91,6 +133,19 @@ multi_model:
   model_optimizasyonu: openvino
   wbf_iou_esigi: 0.55
   guven_esigi: 0.25
+  wbf_dinamik_agirliklandirma:
+    aktif: true
+    metrik_adi: mAP50
+    asgari_agirlik: 1.0
+    azami_agirlik: 2.5
+    duyarlilik: 4.0
+    model_metrikleri:
+      rt-detr-v2-x:
+        genel: 0.965
+        siniflar: {}
+      yolov12x:
+        genel: 0.937
+        siniflar: {}
   wbf_sinif_agirliklari:
     Cizik:
       yolov12x: 2.0

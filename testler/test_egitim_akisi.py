@@ -63,14 +63,16 @@ class EgitimAkisiTesti(unittest.TestCase):
             "egitim": {"transfer_ogrenimi": True, "optimizer": "auto", "lr0": 0.01, "lrf": 0.01, "momentum": 0.937, "weight_decay": 0.0005, "warmup_epochs": 3, "warmup_momentum": 0.8, "warmup_bias_lr": 0.1},
         }
 
-        sonuc = train.egitim_baslat(
-            epoch_sayisi=1, batch_size=1, cihaz="cpu",
-            veri_koku=str(self.veri_koku),
-        )
-        self.assertTrue(sonuc)
+        gecici_egitim_koku = self.gecici_klasor / "runs" / "train"
+        with patch.object(train, "EGITIM_KOKU", gecici_egitim_koku):
+            sonuc = train.egitim_baslat(
+                epoch_sayisi=1, batch_size=1, cihaz="cpu",
+                veri_koku=str(self.veri_koku),
+            )
+            self.assertTrue(sonuc)
 
-        beklenen_agirlik = train.EGITIM_KOKU / "hades_egitim" / "weights" / "best.pt"
-        self.assertTrue(beklenen_agirlik.exists())
+            beklenen_agirlik = gecici_egitim_koku / "hades_egitim" / "weights" / "best.pt"
+            self.assertTrue(beklenen_agirlik.exists())
 
 
 if __name__ == "__main__":

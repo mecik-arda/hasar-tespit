@@ -7,7 +7,7 @@ from pathlib import Path
 PROJE_KOKU = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJE_KOKU))
 
-from src.pipeline import _wbf_kutu_birlestir, _ram_havuzu_olustur
+from src.pipeline import _wbf_kutu_birlestir, _ram_havuzu_olustur, _wbf_model_agirliklarini_hesapla
 
 
 class WbfTesti(unittest.TestCase):
@@ -17,6 +17,70 @@ class WbfTesti(unittest.TestCase):
     def test_bos_havuz_birlestirme(self):
         sonuc = _wbf_kutu_birlestir(self.havuz, 10000, 10000, iou_esigi=0.55, guven_esigi=0.25)
         self.assertEqual(len(sonuc), 0)
+
+    def test_dinamik_agirlik_en_yuksek_metrigi_azami_degere_tasir(self):
+        yapilandirma = {
+            "multi_model": {
+                "wbf_dinamik_agirliklandirma": {
+                    "aktif": True,
+                    "asgari_agirlik": 1.0,
+                    "azami_agirlik": 2.5,
+                    "duyarlilik": 4.0,
+                    "model_metrikleri": {
+                        "rt-detr-v2-x": {"genel": 0.965},
+                        "yolov12x": {"genel": 0.937},
+                    },
+                }
+            }
+        }
+        agirliklar = _wbf_model_agirliklarini_hesapla("Pas", ["rt-detr-v2-x", "yolov12x"], yapilandirma)
+        self.assertEqual(agirliklar[0], 2.5)
+        self.assertGreater(agirliklar[0], agirliklar[1])
+        self.assertGreater(agirliklar[1], 1.0)
+
+    def test_sinif_metrigi_genel_metrikten_onceliklidir(self):
+        yapilandirma = {
+            "multi_model": {
+                "wbf_dinamik_agirliklandirma": {
+                    "aktif": True,
+                    "model_metrikleri": {
+                        "rt-detr-v2-x": {"genel": 0.965, "siniflar": {"Cizik": 0.8}},
+                        "yolov12x": {"genel": 0.937, "siniflar": {"Cizik": 0.95}},
+                    },
+                }
+            }
+        }
+        agirliklar = _wbf_model_agirliklarini_hesapla("Cizik", ["rt-detr-v2-x", "yolov12x"], yapilandirma)
+        self.assertLess(agirliklar[0], agirliklar[1])
+        self.assertEqual(agirliklar[1], 2.5)
+
+    def test_yuzde_bicimli_metrikler_normalize_edilir(self):
+        yapilandirma = {
+            "multi_model": {
+                "wbf_dinamik_agirliklandirma": {
+                    "aktif": True,
+                    "model_metrikleri": {
+                        "rt-detr-v2-x": {"genel": 96.5},
+                        "yolov12x": {"genel": 93.7},
+                    },
+                }
+            }
+        }
+        agirliklar = _wbf_model_agirliklarini_hesapla("Gocuk", ["rt-detr-v2-x", "yolov12x"], yapilandirma)
+        self.assertEqual(agirliklar[0], 2.5)
+        self.assertGreater(agirliklar[1], 1.0)
+
+    def test_metrik_yoksa_sabit_sinif_agirliklari_kullanilir(self):
+        yapilandirma = {
+            "multi_model": {
+                "wbf_dinamik_agirliklandirma": {"aktif": True, "model_metrikleri": {}},
+                "wbf_sinif_agirliklari": {
+                    "Cizik": {"rt-detr-v2-x": 1.0, "yolov12x": 2.0}
+                },
+            }
+        }
+        agirliklar = _wbf_model_agirliklarini_hesapla("Cizik", ["rt-detr-v2-x", "yolov12x"], yapilandirma)
+        self.assertEqual(agirliklar, [1.0, 2.0])
 
     def test_cakismayan_kutular_korunur(self):
         self.havuz["boxes"] = [
@@ -58,6 +122,7 @@ class WbfTesti(unittest.TestCase):
         sonuc = _wbf_kutu_birlestir(self.havuz, 10000, 10000, iou_esigi=0.55, guven_esigi=0.25)
         self.assertEqual(len(sonuc), 1)
         self.assertTrue(sonuc[0].get("wbf_birlestirildi", False))
+        self.assertIn("wbf_model_agirliklari", sonuc[0])
 
     def test_dusuk_guven_skoru_eliminir(self):
         self.havuz["boxes"] = [

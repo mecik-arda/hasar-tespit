@@ -98,7 +98,13 @@ class DinamikEsikTesti(unittest.TestCase):
         cikarim = config.get("cikarim", {})
         self.assertIn("sahi_aktif", cikarim)
         self.assertIn("sahi_dilim_boyutu", cikarim)
-        self.assertFalse(cikarim["sahi_aktif"])
+        self.assertTrue(cikarim["sahi_aktif"])
+        self.assertTrue(cikarim["sahi_adaptif"]["aktif"])
+        self.assertEqual(cikarim["sahi_adaptif"]["hedef_siniflar"], ["Cizik", "Pas"])
+        self.assertTrue(cikarim["tta_adaptif"]["aktif"])
+        self.assertEqual(cikarim["tta_adaptif"]["analiz_uzun_kenar"], 640)
+        self.assertEqual(cikarim["tta_adaptif"]["azami_varyant"], 3)
+        self.assertEqual(cikarim["tta_adaptif"]["kalibrasyon"]["minimum_map50_artisi"], 0.02)
 
     def test_config_max_sam_boxes_mevcut(self):
         import yaml

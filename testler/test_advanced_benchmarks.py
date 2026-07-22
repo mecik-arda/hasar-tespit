@@ -17,6 +17,7 @@ from src.advanced_benchmarks import (
     vlm_skorlarini_hesapla,
     wbf_grid_search_calistir,
     wbf_onerisini_yapilandirmaya_uygula,
+    _wbf_model_metriklerini_hesapla,
 )
 
 
@@ -43,6 +44,33 @@ class BozulmaFiltresiTesti(unittest.TestCase):
 
 
 class WbfGridSearchTesti(unittest.TestCase):
+    def test_model_metrikleri_sinif_bazli_hesaplanir(self):
+        onbellek = [{
+            "gorsel_id": "gorsel-1",
+            "genislik": 100,
+            "yukseklik": 100,
+            "boxes": [
+                {
+                    "sinif_id": 0,
+                    "guven": 0.95,
+                    "kutucuk": {"x1": 10, "y1": 10, "x2": 50, "y2": 50},
+                    "kaynak_model": "rt-detr-v2-x",
+                },
+                {
+                    "sinif_id": 0,
+                    "guven": 0.9,
+                    "kutucuk": {"x1": 60, "y1": 60, "x2": 90, "y2": 90},
+                    "kaynak_model": "yolov12x",
+                },
+            ],
+        }]
+        gercekler = [{"gorsel_id": "gorsel-1", "sinif_id": 0, "kutucuk": [10, 10, 50, 50]}]
+        metrikler = _wbf_model_metriklerini_hesapla(onbellek, gercekler, {0: "Cizik"})
+        self.assertEqual(metrikler["rt-detr-v2-x"]["genel"], 1.0)
+        self.assertEqual(metrikler["rt-detr-v2-x"]["siniflar"]["Cizik"], 1.0)
+        self.assertEqual(metrikler["yolov12x"]["genel"], 0.0)
+        self.assertEqual(metrikler["yolov12x"]["siniflar"]["Cizik"], 0.0)
+
     def test_dedektor_onbellegi_bir_kez_olusturulur_ve_99_kombinasyon_taranir(self):
         kayitlar = []
         gercekler = []
@@ -96,6 +124,10 @@ class WbfGridSearchTesti(unittest.TestCase):
             "onerilen_parametreler": {
                 "wbf_iou_esigi": 0.61,
                 "guven_esigi": 0.24,
+                "model_metrikleri": {
+                    "rt-detr-v2-x": {"genel": 0.965, "siniflar": {"Cizik": 0.97}},
+                    "yolov12x": {"genel": 0.937, "siniflar": {"Cizik": 0.94}},
+                },
                 "config_yaml_degistirildi": False,
             }
         }
@@ -106,6 +138,8 @@ class WbfGridSearchTesti(unittest.TestCase):
         kaydedilen = kaydet.call_args.args[0]
         self.assertEqual(kaydedilen["multi_model"]["wbf_iou_esigi"], 0.61)
         self.assertEqual(kaydedilen["multi_model"]["guven_esigi"], 0.24)
+        self.assertTrue(kaydedilen["multi_model"]["wbf_dinamik_agirliklandirma"]["aktif"])
+        self.assertEqual(kaydedilen["multi_model"]["wbf_dinamik_agirliklandirma"]["model_metrikleri"]["rt-detr-v2-x"]["genel"], 0.965)
         self.assertTrue(rapor["onerilen_parametreler"]["config_yaml_degistirildi"])
         self.assertEqual(sonuc["onceki_degerler"]["wbf_iou_esigi"], 0.55)
 

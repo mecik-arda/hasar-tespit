@@ -259,6 +259,153 @@ def dayaniklilik_benchmark_calistir(miktar=50, siddetler=SİDDET_SEVIYELERI, tah
         kapat()
 
 
+def _orneklenmis_veriyi_olustur(gorsel_idleri, tahminler, gercekler, secilen_indeksler):
+    tahmin_haritasi = {}
+    gercek_haritasi = {}
+    for tahmin in tahminler:
+        tahmin_haritasi.setdefault(str(tahmin["gorsel_id"]), []).append(tahmin)
+    for gercek in gercekler:
+        gercek_haritasi.setdefault(str(gercek["gorsel_id"]), []).append(gercek)
+    ornek_tahminler = []
+    ornek_gercekler = []
+    for yeni_indeks, secilen_indeks in enumerate(secilen_indeksler):
+        kaynak_id = str(gorsel_idleri[int(secilen_indeks)])
+        yeni_id = f"bootstrap-{yeni_indeks}"
+        for tahmin in tahmin_haritasi.get(kaynak_id, []):
+            ornek_tahminler.append({**tahmin, "gorsel_id": yeni_id})
+        for gercek in gercek_haritasi.get(kaynak_id, []):
+            ornek_gercekler.append({**gercek, "gorsel_id": yeni_id})
+    return ornek_tahminler, ornek_gercekler
+
+
+def bootstrap_map50_farkini_hesapla(temel_tahminler, tta_tahminleri, gercekler, siniflar, tekrar=1000, guven_duzeyi=0.95, tohum=42):
+    gorsel_idleri = sorted({str(gercek["gorsel_id"]) for gercek in gercekler})
+    if not gorsel_idleri:
+        return {"ortalama": 0.0, "alt_sinir": 0.0, "ust_sinir": 0.0, "tekrar": 0, "guven_duzeyi": guven_duzeyi}
+    tekrar = max(10, int(tekrar))
+    guven_duzeyi = min(0.999, max(0.5, float(guven_duzeyi)))
+    rastgele = np.random.default_rng(int(tohum))
+    farklar = []
+    for _ in range(tekrar):
+        secilen_indeksler = rastgele.integers(0, len(gorsel_idleri), len(gorsel_idleri))
+        ornek_tta, ornek_gercekler = _orneklenmis_veriyi_olustur(gorsel_idleri, tta_tahminleri, gercekler, secilen_indeksler)
+        ornek_taban, _ = _orneklenmis_veriyi_olustur(gorsel_idleri, temel_tahminler, gercekler, secilen_indeksler)
+        taban_map = float(dogruluk_metriklerini_hesapla(ornek_taban, ornek_gercekler, siniflar).get("mAP50", 0.0))
+        tta_map = float(dogruluk_metriklerini_hesapla(ornek_tta, ornek_gercekler, siniflar).get("mAP50", 0.0))
+        farklar.append(tta_map - taban_map)
+    alfa = (1.0 - guven_duzeyi) / 2.0
+    return {
+        "ortalama": round(float(np.mean(farklar)), 6),
+        "alt_sinir": round(float(np.quantile(farklar, alfa)), 6),
+        "ust_sinir": round(float(np.quantile(farklar, 1.0 - alfa)), 6),
+        "tekrar": tekrar,
+        "guven_duzeyi": guven_duzeyi,
+    }
+
+
+def tta_kalibrasyon_benchmark_calistir(miktar=50, siddetler=SİDDET_SEVIYELERI, temel_tahmin_uretici=None, tta_tahmin_uretici=None, yapilandirma=None, rapor_uret=True):
+    yapilandirma = copy.deepcopy(yapilandirma or yapilandirma_yukle())
+    kayitlar, gercekler, kaynak_adi = _etiketli_veriyi_hazirla(miktar)
+    if not kayitlar:
+        return _rapor_dosyalari_ekle({"durum": "Atlandı (Etiketli görsel bulunamadı)", "benchmark": "tta_kalibrasyon"}, rapor_uret, "tta_kalibrasyon")
+    kapat = lambda: None
+    try:
+        if temel_tahmin_uretici is None or tta_tahmin_uretici is None:
+            from src.pipeline import _adaptif_tta_tarama, _model_bosalt, _model_yukle_optimize, egitilmis_model_yolu_bul
+            from src.adaptive_tta import gorsel_kalitesini_analiz_et
+            model_yolu = egitilmis_model_yolu_bul()
+            if model_yolu is None:
+                raise FileNotFoundError("Eğitilmiş model bulunamadı")
+            model, backend = _model_yukle_optimize(model_yolu, yapilandirma)
+            cikarim = yapilandirma.get("cikarim", {})
+            tta_ayar = cikarim.get("tta_adaptif", {})
+
+            def temel_tahmin_uretici(gorsel, gorsel_id):
+                sonuclar = model.predict(source=gorsel, conf=0.10, iou=cikarim.get("iou_esigi", 0.7), save=False, verbose=False, augment=False)
+                return _ultralytics_sonuclarini_cevir(sonuclar, gorsel_id)
+
+            def tta_tahmin_uretici(gorsel, gorsel_id):
+                kalite = gorsel_kalitesini_analiz_et(gorsel, {**tta_ayar, "aktif": True})
+                tahminler, _ = _adaptif_tta_tarama(model, gorsel, kalite, {**tta_ayar, "aktif": True}, iou_esigi=cikarim.get("iou_esigi", 0.7), zorla=True)
+                return _tahminleri_standartlastir(tahminler, gorsel_id)
+
+            def kapat():
+                nonlocal model
+                model = None
+                _model_bosalt(True)
+        else:
+            backend = "Özel tahmin üreticileri"
+        kalibrasyon = yapilandirma.get("cikarim", {}).get("tta_adaptif", {}).get("kalibrasyon", {})
+        minimum_artis = float(kalibrasyon.get("minimum_map50_artisi", 0.02))
+        guven_duzeyi = float(kalibrasyon.get("guven_duzeyi", 0.95))
+        bootstrap_tekrari = int(kalibrasyon.get("bootstrap_tekrari", 1000))
+        azami_gecikme = float(kalibrasyon.get("azami_gecikme_artisi_yuzdesi", 200.0))
+        sonuclar = {}
+        for bozulma_turu in ("karanlik", "parlama", "hareket_bulanikligi"):
+            sonuclar[bozulma_turu] = {}
+            for siddet in siddetler:
+                temel_tahminler = []
+                tta_tahminleri = []
+                temel_sureler = []
+                tta_sureleri = []
+                for indeks, kayit in enumerate(kayitlar):
+                    bozulmus = bozulma_uygula(kayit["gorsel"], bozulma_turu, int(siddet), tohum=42 + indeks)
+                    baslangic = time.perf_counter()
+                    temel_tahminler.extend(_tahminleri_standartlastir(temel_tahmin_uretici(bozulmus, kayit["gorsel_id"]), kayit["gorsel_id"]))
+                    temel_sureler.append(time.perf_counter() - baslangic)
+                    baslangic = time.perf_counter()
+                    tta_tahminleri.extend(_tahminleri_standartlastir(tta_tahmin_uretici(bozulmus, kayit["gorsel_id"]), kayit["gorsel_id"]))
+                    tta_sureleri.append(time.perf_counter() - baslangic)
+                siniflar = yapilandirma.get("siniflar", {})
+                temel_metrikler = dogruluk_metriklerini_hesapla(temel_tahminler, gercekler, siniflar)
+                tta_metrikleri = dogruluk_metriklerini_hesapla(tta_tahminleri, gercekler, siniflar)
+                delta_map50 = float(tta_metrikleri.get("mAP50", 0.0)) - float(temel_metrikler.get("mAP50", 0.0))
+                temel_ortalama = statistics.mean(temel_sureler) if temel_sureler else 0.0
+                tta_ortalama = statistics.mean(tta_sureleri) if tta_sureleri else 0.0
+                gecikme_artisi = ((tta_ortalama / temel_ortalama) - 1.0) * 100.0 if temel_ortalama > 0 else None
+                guven_araligi = bootstrap_map50_farkini_hesapla(
+                    temel_tahminler,
+                    tta_tahminleri,
+                    gercekler,
+                    siniflar,
+                    tekrar=bootstrap_tekrari,
+                    guven_duzeyi=guven_duzeyi,
+                    tohum=42 + int(siddet),
+                )
+                gecikme_uygun = gecikme_artisi is not None and gecikme_artisi <= azami_gecikme
+                etkinlestir = delta_map50 > minimum_artis and guven_araligi["alt_sinir"] > 0.0 and gecikme_uygun
+                sonuclar[bozulma_turu][str(siddet)] = {
+                    "temel_metrikler": temel_metrikler,
+                    "tta_metrikleri": tta_metrikleri,
+                    "delta_map50": round(delta_map50, 6),
+                    "bootstrap_guven_araligi": guven_araligi,
+                    "temel_gecikme_ms": round(temel_ortalama * 1000.0, 4),
+                    "tta_gecikme_ms": round(tta_ortalama * 1000.0, 4),
+                    "gecikme_artisi_yuzdesi": round(gecikme_artisi, 4) if gecikme_artisi is not None else None,
+                    "tta_etkinlestirme_onerisi": etkinlestir,
+                }
+        rapor = {
+            "durum": "Tamamlandı",
+            "benchmark": "tta_kalibrasyon",
+            "zaman_damgasi": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "veri_kaynagi": kaynak_adi,
+            "gorsel_sayisi": len(kayitlar),
+            "backend": backend,
+            "kabul_kriterleri": {
+                "minimum_map50_artisi": minimum_artis,
+                "guven_duzeyi": guven_duzeyi,
+                "bootstrap_tekrari": bootstrap_tekrari,
+                "azami_gecikme_artisi_yuzdesi": azami_gecikme,
+            },
+            "sonuclar": sonuclar,
+        }
+        return _rapor_dosyalari_ekle(rapor, rapor_uret, "tta_kalibrasyon")
+    except Exception as hata:
+        return _rapor_dosyalari_ekle({"durum": f"Hata: {hata}", "benchmark": "tta_kalibrasyon"}, rapor_uret, "tta_kalibrasyon")
+    finally:
+        kapat()
+
+
 def _aralik_degerleri(baslangic, bitis, adim):
     basamak = max(0, len(str(adim).split(".")[-1]))
     degerler = []
@@ -289,9 +436,9 @@ def _ham_tespit_onbellegi_olustur(kayitlar, yapilandirma, ham_tespit_uretici=Non
         for kayit in kayitlar:
             havuz = {"boxes": [], "masks": []}
             if modeller.get("rtdetr") is not None:
-                _tek_model_tara(RTDETR, "", "rt-detr-v2-x", kayit["gorsel"], havuz, 0.10, 0.70, {}, yapilandirma.get("siniflar", {}), False, 640, True, False, hazir_model=modeller["rtdetr"])
+                _tek_model_tara(RTDETR, "", "rt-detr-v2-x", kayit["gorsel"], havuz, 0.10, 0.70, {}, yapilandirma.get("siniflar", {}), False, 640, {}, True, False, hazir_model=modeller["rtdetr"])
             if modeller.get("yolo") is not None:
-                _tek_model_tara(YOLO, "", "yolov12x", kayit["gorsel"], havuz, 0.10, 0.70, {}, yapilandirma.get("siniflar", {}), False, 640, True, False, hazir_model=modeller["yolo"])
+                _tek_model_tara(YOLO, "", "yolov12x", kayit["gorsel"], havuz, 0.10, 0.70, {}, yapilandirma.get("siniflar", {}), False, 640, {}, True, False, hazir_model=modeller["yolo"])
             onbellek.append({
                 "gorsel_id": kayit["gorsel_id"],
                 "genislik": kayit["genislik"],
@@ -329,6 +476,35 @@ def _wbf_parametrelerini_degerlendir(onbellek, gercekler, yapilandirma, iou_esig
     }
 
 
+def _wbf_model_metriklerini_hesapla(onbellek, gercekler, siniflar):
+    model_isimleri = sorted({
+        kutu.get("kaynak_model")
+        for kayit in onbellek
+        for kutu in kayit.get("boxes", [])
+        if kutu.get("kaynak_model")
+    })
+    model_metrikleri = {}
+    for model_adi in model_isimleri:
+        tahminler = []
+        for kayit in onbellek:
+            model_kutulari = [
+                kutu for kutu in kayit.get("boxes", [])
+                if kutu.get("kaynak_model") == model_adi
+            ]
+            tahminler.extend(_tahminleri_standartlastir(model_kutulari, kayit["gorsel_id"]))
+        metrikler = dogruluk_metriklerini_hesapla(tahminler, gercekler, siniflar)
+        sinif_metrikleri = {
+            sinif_adi: sinif_sonucu["ap50"]
+            for sinif_adi, sinif_sonucu in metrikler.get("sinif_bazli", {}).items()
+            if sinif_sonucu.get("ap50") is not None
+        }
+        model_metrikleri[model_adi] = {
+            "genel": metrikler.get("mAP50", 0.0),
+            "siniflar": sinif_metrikleri,
+        }
+    return model_metrikleri
+
+
 def _grid_sonuclarini_sirala(sonuclar):
     return sorted(sonuclar, key=lambda sonuc: (sonuc["mAP50_95"], sonuc["mAP50"], sonuc["f1"], sonuc["recall"]), reverse=True)
 
@@ -342,6 +518,11 @@ def wbf_grid_search_calistir(miktar=50, ince_ayar=False, ham_tespit_uretici=None
         onbellek_baslangici = time.perf_counter()
         onbellek, onbellek_bilgisi = _ham_tespit_onbellegi_olustur(kayitlar, yapilandirma, ham_tespit_uretici)
         onbellek_suresi = time.perf_counter() - onbellek_baslangici
+        model_metrikleri = _wbf_model_metriklerini_hesapla(onbellek, gercekler, yapilandirma.get("siniflar", {}))
+        if model_metrikleri:
+            dinamik_ayar = yapilandirma.setdefault("multi_model", {}).setdefault("wbf_dinamik_agirliklandirma", {})
+            dinamik_ayar["aktif"] = True
+            dinamik_ayar["model_metrikleri"] = copy.deepcopy(model_metrikleri)
         kaba_sonuclar = []
         arama_baslangici = time.perf_counter()
         for iou_esigi in _aralik_degerleri(0.30, 0.80, 0.05):
@@ -376,6 +557,7 @@ def wbf_grid_search_calistir(miktar=50, ince_ayar=False, ham_tespit_uretici=None
                 "wbf_iou_esigi": en_iyi["iou_esigi"],
                 "guven_esigi": en_iyi["guven_esigi"],
                 "metrikler": en_iyi,
+                "model_metrikleri": model_metrikleri,
                 "config_yaml_degistirildi": False,
             },
             "en_iyi_10_kaba_sonuc": sirali_kaba_sonuclar[:10],
@@ -399,12 +581,18 @@ def wbf_onerisini_yapilandirmaya_uygula(rapor):
         raise ValueError("WBF önerisi geçerli eşik aralığında değil")
     yapilandirma = copy.deepcopy(yapilandirma_yukle())
     multi_model = yapilandirma.setdefault("multi_model", {})
+    yeni_model_metrikleri = oneri.get("model_metrikleri", {})
+    dinamik_ayar = multi_model.setdefault("wbf_dinamik_agirliklandirma", {})
     onceki_degerler = {
         "wbf_iou_esigi": multi_model.get("wbf_iou_esigi"),
         "guven_esigi": multi_model.get("guven_esigi"),
+        "model_metrikleri": copy.deepcopy(dinamik_ayar.get("model_metrikleri", {})),
     }
     multi_model["wbf_iou_esigi"] = round(iou_esigi, 2)
     multi_model["guven_esigi"] = round(guven_esigi, 2)
+    if isinstance(yeni_model_metrikleri, dict) and yeni_model_metrikleri:
+        dinamik_ayar["aktif"] = True
+        dinamik_ayar["model_metrikleri"] = copy.deepcopy(yeni_model_metrikleri)
     yapilandirma_kaydet(yapilandirma)
     uygulama = {
         "durum": "Uygulandı",
@@ -413,6 +601,7 @@ def wbf_onerisini_yapilandirmaya_uygula(rapor):
         "yeni_degerler": {
             "wbf_iou_esigi": multi_model["wbf_iou_esigi"],
             "guven_esigi": multi_model["guven_esigi"],
+            "model_metrikleri": copy.deepcopy(dinamik_ayar.get("model_metrikleri", {})),
         },
     }
     oneri["config_yaml_degistirildi"] = True
@@ -840,6 +1029,7 @@ def gelismis_benchmark_suitini_calistir(miktar=50, ince_ayar=False, negatif_orne
         "zaman_damgasi": datetime.now().astimezone().isoformat(timespec="seconds"),
         "bellek_baslangic": bellek_olcu_al(),
         "dayaniklilik": dayaniklilik_benchmark_calistir(miktar=miktar, yapilandirma=yapilandirma, rapor_uret=False),
+        "tta_kalibrasyon": tta_kalibrasyon_benchmark_calistir(miktar=miktar, yapilandirma=yapilandirma, rapor_uret=False),
         "wbf_grid_search": wbf_grid_search_calistir(miktar=miktar, ince_ayar=ince_ayar, yapilandirma=yapilandirma, rapor_uret=False),
         "sinif_karisiklik_matrisi": sinif_karisiklik_matrisi_calistir(miktar=miktar, yapilandirma=yapilandirma, rapor_uret=False),
         "eszamanlilik_stres": eszamanlilik_stres_testi_calistir(yapilandirma=yapilandirma, rapor_uret=False),
