@@ -442,27 +442,34 @@ def _model_bosalt(ram_optimizasyonu=True):
 
 def _tek_model_tara(model_sinifi, model_yolu, kaynak_etiketi, gorsel, tespitler_havuzu,
                     guven_esigi, iou_esigi, sinif_guven_esikleri, siniflar,
-                    sahi_aktif, sahi_dilim_boyutu, otomatik_yedekleme, ram_optimizasyonu):
+                    sahi_aktif, sahi_dilim_boyutu, otomatik_yedekleme, ram_optimizasyonu,
+                    hazir_model=None):
     """Tek bir modeli yukler, gorseli tarar, kutulari havuza ekler, modeli bosaltir.
 
     Returns:
         int: Havuza eklenen kutu sayisi.
     """
     eklenen = 0
+    model = hazir_model
+    model_sahibi = hazir_model is None
     try:
-        try:
-            model = model_sinifi(str(model_yolu))
-            dml = _directml_cihazini_al()
-            if dml is not None:
-                import torch
-                if hasattr(model, 'model') and model.model is not None:
-                    model.model.to(dml)
-        except RuntimeError as hata:
-            if "out of memory" in str(hata).lower() and otomatik_yedekleme:
-                print(f"{Fore.YELLOW}[!] VRAM dolu, {kaynak_etiketi} CPU'ya kaydiriliyor...{Style.RESET_ALL}")
+        if model_sahibi:
+            try:
                 model = model_sinifi(str(model_yolu))
-            else:
-                raise
+                dml = _directml_cihazini_al()
+                if dml is not None:
+                    import torch
+                    if hasattr(model, 'model') and model.model is not None:
+                        try:
+                            model.model.to(dml)
+                        except Exception as dml_hata:
+                            print(f"{Fore.YELLOW}[!] DirectML cihazina tasima basarisiz: {dml_hata}{Style.RESET_ALL}")
+            except RuntimeError as hata:
+                if "out of memory" in str(hata).lower() and otomatik_yedekleme:
+                    print(f"{Fore.YELLOW}[!] VRAM dolu, {kaynak_etiketi} CPU'ya kaydiriliyor...{Style.RESET_ALL}")
+                    model = model_sinifi(str(model_yolu))
+                else:
+                    raise
 
         if sahi_aktif:
             sonuclar = _sahi_tarama(model, gorsel, guven_esigi=0.10, iou_esigi=iou_esigi, dilim_boyutu=sahi_dilim_boyutu)
@@ -491,23 +498,28 @@ def _tek_model_tara(model_sinifi, model_yolu, kaynak_etiketi, gorsel, tespitler_
                 })
                 eklenen += 1
 
-        del model
-        _model_bosalt(ram_optimizasyonu)
+        if model_sahibi:
+            del model
+            _model_bosalt(ram_optimizasyonu)
     except Exception as hata:
         print(f"{Fore.RED}[-] {kaynak_etiketi} taramasi basarisiz: {hata}{Style.RESET_ALL}")
 
     return eklenen
 
 
-def _wbf_sinif_adi_bul(sinif_id, tespitler_havuzu):
-    """WBF sonrasi sinif ID'sine karsilik gelen sinif adini havuzdaki kutulardan bulur."""
+def _wbf_sinif_adi_bul(sinif_id, tespitler_havuzu, yapilandirma=None):
+    """WBF sonrasi sinif ID'sine karsilik gelen sinif adini config'den veya havuzdaki kutulardan bulur."""
+    if yapilandirma is not None and "siniflar" in yapilandirma:
+        siniflar_map = yapilandirma.get("siniflar", {})
+        if sinif_id in siniflar_map:
+            return siniflar_map[sinif_id]
     for kutu in tespitler_havuzu.get("boxes", []):
         if kutu.get("sinif_id") == sinif_id and "sinif_adi" in kutu:
             return kutu["sinif_adi"]
     return f"Sinif_{sinif_id}"
 
 
-def _wbf_kutu_birlestir(tespitler_havuzu, gorsel_genisligi, gorsel_yuksekligi, iou_esigi=0.55, guven_esigi=0.25):
+def _wbf_kutu_birlestir(tespitler_havuzu, gorsel_genisligi, gorsel_yuksekligi, iou_esigi=0.55, guven_esigi=0.25, yapilandirma=None):
     try:
         from ensemble_boxes import weighted_boxes_fusion
     except ImportError:
@@ -521,66 +533,88 @@ def _wbf_kutu_birlestir(tespitler_havuzu, gorsel_genisligi, gorsel_yuksekligi, i
             model_gruplari[kaynak] = []
         model_gruplari[kaynak].append(kutu_bilgisi)
 
-    kutu_listeleri = []
-    skor_listeleri = []
-    etiket_listeleri = []
-
-    for kaynak, kutular in model_gruplari.items():
-        kutu_listesi = []
-        skor_listesi = []
-        etiket_listesi = []
-
-        for kutu_bilgisi in kutular:
-            koordinat = kutu_bilgisi.get("kutucuk", {})
-            x1 = koordinat.get("x1", 0)
-            y1 = koordinat.get("y1", 0)
-            x2 = koordinat.get("x2", 0)
-            y2 = koordinat.get("y2", 0)
-
-            normalize_x1 = max(0.0, min(1.0, x1 / float(gorsel_genisligi)))
-            normalize_y1 = max(0.0, min(1.0, y1 / float(gorsel_yuksekligi)))
-            normalize_x2 = max(0.0, min(1.0, x2 / float(gorsel_genisligi)))
-            normalize_y2 = max(0.0, min(1.0, y2 / float(gorsel_yuksekligi)))
-
-            kutu_listesi.append([normalize_x1, normalize_y1, normalize_x2, normalize_y2])
-            skor_listesi.append(float(kutu_bilgisi.get("guven", 0.0)))
-            etiket_listesi.append(int(kutu_bilgisi.get("sinif_id", 0)))
-
-        kutu_listeleri.append(kutu_listesi)
-        skor_listeleri.append(skor_listesi)
-        etiket_listeleri.append(etiket_listesi)
-
-    if not kutu_listeleri:
+    if not model_gruplari:
         return tespitler_havuzu["boxes"]
 
-    birlesmis_kutular, birlesmis_skorlar, birlesmis_etiketler = weighted_boxes_fusion(
-        kutu_listeleri,
-        skor_listeleri,
-        etiket_listeleri,
-        iou_thr=iou_esigi,
-        skip_box_thr=guven_esigi,
-    )
+    if yapilandirma is None:
+        from src.utils import yapilandirma_yukle
+        yapilandirma = yapilandirma_yukle()
 
+    wbf_agirliklari = yapilandirma.get("multi_model", {}).get("wbf_sinif_agirliklari", {})
+
+    tum_siniflar = set()
+    for kutu_bilgisi in tespitler_havuzu["boxes"]:
+        tum_siniflar.add(int(kutu_bilgisi.get("sinif_id", 0)))
+
+    model_isimleri = list(model_gruplari.keys())
     sonuc_kutular = []
-    for i, (kutu, skor, etiket) in enumerate(zip(birlesmis_kutular, birlesmis_skorlar, birlesmis_etiketler)):
-        x1 = int(kutu[0] * gorsel_genisligi)
-        y1 = int(kutu[1] * gorsel_yuksekligi)
-        x2 = int(kutu[2] * gorsel_genisligi)
-        y2 = int(kutu[3] * gorsel_yuksekligi)
 
-        sonuc_kutular.append({
-            "sinif_id": int(etiket),
-            "sinif_adi": _wbf_sinif_adi_bul(int(etiket), tespitler_havuzu),
-            "guven": round(float(skor), 4),
-            "kutucuk": {
-                "x1": x1,
-                "y1": y1,
-                "x2": x2,
-                "y2": y2,
-            },
-            "kaynak_model": "wbf",
-            "wbf_birlestirildi": True,
-        })
+    for sinif_id in tum_siniflar:
+        sinif_adi = _wbf_sinif_adi_bul(sinif_id, tespitler_havuzu, yapilandirma=yapilandirma)
+
+        agirlik_listesi = None
+        if sinif_adi in wbf_agirliklari:
+            agirlik_dict = wbf_agirliklari[sinif_adi]
+            agirlik_listesi = [float(agirlik_dict.get(m, 1.0)) for m in model_isimleri]
+
+        kutu_listeleri = []
+        skor_listeleri = []
+        etiket_listeleri = []
+
+        for kaynak in model_isimleri:
+            kutular = model_gruplari[kaynak]
+            k_list = []
+            s_list = []
+            e_list = []
+
+            for kutu_bilgisi in kutular:
+                if int(kutu_bilgisi.get("sinif_id", 0)) != sinif_id:
+                    continue
+
+                koordinat = kutu_bilgisi.get("kutucuk", {})
+                x1, y1 = koordinat.get("x1", 0), koordinat.get("y1", 0)
+                x2, y2 = koordinat.get("x2", 0), koordinat.get("y2", 0)
+
+                normalize_x1 = max(0.0, min(1.0, x1 / float(gorsel_genisligi)))
+                normalize_y1 = max(0.0, min(1.0, y1 / float(gorsel_yuksekligi)))
+                normalize_x2 = max(0.0, min(1.0, x2 / float(gorsel_genisligi)))
+                normalize_y2 = max(0.0, min(1.0, y2 / float(gorsel_yuksekligi)))
+
+                k_list.append([normalize_x1, normalize_y1, normalize_x2, normalize_y2])
+                s_list.append(float(kutu_bilgisi.get("guven", 0.0)))
+                e_list.append(int(kutu_bilgisi.get("sinif_id", 0)))
+
+            kutu_listeleri.append(k_list)
+            skor_listeleri.append(s_list)
+            etiket_listeleri.append(e_list)
+
+        bos_kutu_sayisi = sum(len(l) for l in kutu_listeleri)
+        if bos_kutu_sayisi == 0:
+            continue
+
+        birlesmis_kutular, birlesmis_skorlar, birlesmis_etiketler = weighted_boxes_fusion(
+            kutu_listeleri,
+            skor_listeleri,
+            etiket_listeleri,
+            weights=agirlik_listesi,
+            iou_thr=iou_esigi,
+            skip_box_thr=guven_esigi,
+        )
+
+        for i, (kutu, skor, etiket) in enumerate(zip(birlesmis_kutular, birlesmis_skorlar, birlesmis_etiketler)):
+            x1 = int(kutu[0] * gorsel_genisligi)
+            y1 = int(kutu[1] * gorsel_yuksekligi)
+            x2 = int(kutu[2] * gorsel_genisligi)
+            y2 = int(kutu[3] * gorsel_yuksekligi)
+
+            sonuc_kutular.append({
+                "sinif_id": int(etiket),
+                "sinif_adi": sinif_adi,
+                "guven": round(float(skor), 4),
+                "kutucuk": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
+                "kaynak_model": "wbf",
+                "wbf_birlestirildi": True,
+            })
 
     return sonuc_kutular
 
@@ -696,71 +730,88 @@ def coklu_model_hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=N
         print()
 
     tespitler_havuzu = _ram_havuzu_olustur()
-    baslangic_zamani = time.time()
+    baslangic_zamani = time.perf_counter()
+    asama_sureleri = {
+        "rtdetr_saniye": 0.0,
+        "yolo_saniye": 0.0,
+        "wbf_saniye": 0.0,
+        "sam_saniye": 0.0,
+        "florence_saniye": 0.0,
+    }
     agirliklar = multi_model_ayari.get("agirliklar", {})
-    kendi_modellerini_yonet = hazir_modeller is None
+    hazir_modeller = hazir_modeller or {}
 
     rtdetr_yolu = agirliklar.get("rtdetr", "rtdetr-v2-x.pt")
     rtdetr_model_yolu = PROJE_KOKU / rtdetr_yolu
     if not rtdetr_model_yolu.exists():
         rtdetr_model_yolu = egitilmis_model_yolu_bul()
 
-    if rtdetr_model_yolu is not None:
+    rtdetr_baslangici = time.perf_counter()
+    rtdetr_hazir_belirtildi = "rtdetr" in hazir_modeller
+    if (not rtdetr_hazir_belirtildi and rtdetr_model_yolu is not None) or hazir_modeller.get("rtdetr") is not None:
         from ultralytics import RTDETR
-        if kendi_modellerini_yonet:
-            rtdetr_eklenen = _tek_model_tara(
-                RTDETR, rtdetr_model_yolu, "rt-detr-v2-x", gorsel, tespitler_havuzu,
-                guven_esigi, iou_esigi, sinif_guven_esikleri, siniflar,
-                sahi_aktif, sahi_dilim_boyutu, otomatik_yedekleme, ram_optimizasyonu,
-            )
-        else:
-            rtdetr_eklenen = _tek_model_tara(
-                RTDETR, rtdetr_model_yolu, "rt-detr-v2-x", gorsel, tespitler_havuzu,
-                guven_esigi, iou_esigi, sinif_guven_esikleri, siniflar,
-                sahi_aktif, sahi_dilim_boyutu, otomatik_yedekleme, ram_optimizasyonu,
-            )
+        rtdetr_eklenen = _tek_model_tara(
+            RTDETR, rtdetr_model_yolu, "rt-detr-v2-x", gorsel, tespitler_havuzu,
+            guven_esigi, iou_esigi, sinif_guven_esikleri, siniflar,
+            sahi_aktif, sahi_dilim_boyutu, otomatik_yedekleme, ram_optimizasyonu,
+            hazir_model=hazir_modeller.get("rtdetr"),
+        )
         print(f"{Fore.GREEN}[+] RT-DETRv2-X Taramasi... [Bitti] ({rtdetr_eklenen} tespit){Style.RESET_ALL}")
     else:
         print(f"{Fore.YELLOW}[!] RT-DETR modeli bulunamadi, atlandi.{Style.RESET_ALL}")
+    asama_sureleri["rtdetr_saniye"] = round(time.perf_counter() - rtdetr_baslangici, 6)
 
     yolo_yolu = agirliklar.get("yolo", "yolov12x.pt")
     yolo_model_yolu = PROJE_KOKU / yolo_yolu
     if not yolo_model_yolu.exists():
         yolo_model_yolu = egitilmis_model_yolu_bul()
 
-    if yolo_model_yolu is not None:
+    yolo_baslangici = time.perf_counter()
+    yolo_hazir_belirtildi = "yolo" in hazir_modeller
+    if (not yolo_hazir_belirtildi and yolo_model_yolu is not None) or hazir_modeller.get("yolo") is not None:
         from ultralytics import YOLO
         yolo_eklenen = _tek_model_tara(
             YOLO, yolo_model_yolu, "yolov12x", gorsel, tespitler_havuzu,
             guven_esigi, iou_esigi, sinif_guven_esikleri, siniflar,
             sahi_aktif, sahi_dilim_boyutu, otomatik_yedekleme, ram_optimizasyonu,
+            hazir_model=hazir_modeller.get("yolo"),
         )
         print(f"{Fore.GREEN}[+] YOLOv12x Taramasi... [Bitti] ({yolo_eklenen} tespit){Style.RESET_ALL}")
     else:
         print(f"{Fore.YELLOW}[!] YOLO modeli bulunamadi, atlandi.{Style.RESET_ALL}")
+    asama_sureleri["yolo_saniye"] = round(time.perf_counter() - yolo_baslangici, 6)
 
     gorsel_yuksekligi, gorsel_genisligi = gorsel.shape[:2]
-    birlesmis_kutular = _wbf_kutu_birlestir(tespitler_havuzu, gorsel_genisligi, gorsel_yuksekligi, iou_esigi=wbf_iou_esigi, guven_esigi=guven_esigi)
+    wbf_baslangici = time.perf_counter()
+    birlesmis_kutular = _wbf_kutu_birlestir(tespitler_havuzu, gorsel_genisligi, gorsel_yuksekligi, iou_esigi=wbf_iou_esigi, guven_esigi=guven_esigi, yapilandirma=yapilandirma)
     tespitler_havuzu["boxes"] = birlesmis_kutular
+    asama_sureleri["wbf_saniye"] = round(time.perf_counter() - wbf_baslangici, 6)
 
     sam_yolu = agirliklar.get("sam", "sam2_s.pt")
     sam_model_yolu = PROJE_KOKU / sam_yolu
 
+    sam_baslangici = time.perf_counter()
+    sam_hazir_belirtildi = "sam" in hazir_modeller
     try:
+        if sam_hazir_belirtildi and hazir_modeller.get("sam") is None:
+            raise ImportError
         from ultralytics import SAM
-        try:
-            sam_model = SAM(str(sam_model_yolu))
-            dml = _directml_cihazini_al()
-            if dml is not None:
-                import torch
-                if hasattr(sam_model, 'model') and sam_model.model is not None:
-                    sam_model.model.to(dml)
-        except RuntimeError as hata:
-            if "out of memory" in str(hata).lower() and otomatik_yedekleme:
-                print(f"{Fore.YELLOW}[!] VRAM dolu, SAM 2 CPU'ya kaydiriliyor...{Style.RESET_ALL}")
+        sam_model = hazir_modeller.get("sam")
+        sam_model_sahibi = sam_model is None
+        if sam_model_sahibi:
+            try:
                 sam_model = SAM(str(sam_model_yolu))
-            else:
-                raise
+                dml = _directml_cihazini_al()
+                if dml is not None:
+                    import torch
+                    if hasattr(sam_model, 'model') and sam_model.model is not None:
+                        sam_model.model.to(dml)
+            except RuntimeError as hata:
+                if "out of memory" in str(hata).lower() and otomatik_yedekleme:
+                    print(f"{Fore.YELLOW}[!] VRAM dolu, SAM 2 CPU'ya kaydiriliyor...{Style.RESET_ALL}")
+                    sam_model = SAM(str(sam_model_yolu))
+                else:
+                    raise
 
         gocuk_kutulari = [b for b in tespitler_havuzu["boxes"] if b.get("sinif_adi", "").lower() in ("gocuk", "dent")]
         masklenecek_kutular = gocuk_kutulari if gocuk_kutulari else tespitler_havuzu["boxes"]
@@ -795,20 +846,24 @@ def coklu_model_hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=N
             except Exception:
                 pass
 
-        del sam_model
-        _model_bosalt(ram_optimizasyonu)
+        if sam_model_sahibi:
+            del sam_model
+            _model_bosalt(ram_optimizasyonu)
     except ImportError:
         print(f"{Fore.YELLOW}[!] SAM 2 kutuphanesi yuklu degil, maskeleme atlandi.{Style.RESET_ALL}")
     except Exception as hata:
         print(f"{Fore.RED}[-] SAM 2 maskelemesi basarisiz: {hata}{Style.RESET_ALL}")
+    asama_sureleri["sam_saniye"] = round(time.perf_counter() - sam_baslangici, 6)
 
+    florence_baslangici = time.perf_counter()
     try:
         from src.inspector_florence import denetle as florence_denetle
         tespitler_havuzu = florence_denetle(tespitler_havuzu, gorsel, yapilandirma=yapilandirma)
     except Exception as hata:
         print(f"{Fore.RED}[-] Florence-2 denetimi basarisiz: {hata}{Style.RESET_ALL}")
+    asama_sureleri["florence_saniye"] = round(time.perf_counter() - florence_baslangici, 6)
 
-    gecen_sure = time.time() - baslangic_zamani
+    gecen_sure = time.perf_counter() - baslangic_zamani
 
     dogrulanmis_tespitler = tespitler_havuzu.get("boxes", [])
     sinif_sayaclari = {}
@@ -861,6 +916,7 @@ def coklu_model_hasar_tespiti_yap(gorsel_yolu, cikti_klasoru=None, json_kaydet=N
         "coklu_model": True,
         "model_siralamasi": multi_model_ayari.get("siralama", []),
         "gecen_sure_saniye": round(gecen_sure, 4),
+        "asama_sureleri": asama_sureleri,
         "toplam_tespit": len(dogrulanmis_tespitler),
         "toplam_maske": len(tespitler_havuzu.get("masks", [])),
         "hasar_dagilimi": sinif_sayaclari,

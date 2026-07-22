@@ -14,6 +14,7 @@ import main
 
 class MenuAralikTesti(unittest.TestCase):
     @patch("src.utils.yapilandirma_yukle", return_value={"multi_model": {"aktif": False}, "model": {"tur": "rtdetr", "agirlik": "rtdetr-x.pt"}, "siniflar": {}, "cikarim": {}})
+    @patch("main.benchmark_calistir")
     @patch("main.gateway_testi_calistir")
     @patch("main.model_bilgisi_calistir")
     @patch("main.etiket_dogrulama_calistir")
@@ -31,9 +32,9 @@ class MenuAralikTesti(unittest.TestCase):
     @patch("main.etiketleme_calistir")
     @patch("main.donanim_kontrolu_calistir")
     @patch("main.cikis_yap")
-    def test_menu_araligi_0_16(
+    def test_menu_araligi_0_17(
         self,
-        m_cikis, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, _mock_config,
+        m_cikis, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, _mock_config,
     ):
         self.assertFalse(main.menu_secimi_isle("0"))
         m_cikis.assert_called_once()
@@ -69,6 +70,8 @@ class MenuAralikTesti(unittest.TestCase):
         m15.assert_called_once()
         self.assertTrue(main.menu_secimi_isle("16"))
         m16.assert_called_once()
+        self.assertTrue(main.menu_secimi_isle("17"))
+        m17.assert_called_once()
 
     @patch("main.cikis_yap")
     def test_menu_cikis_false_doner(self, mock_cikis):
@@ -80,7 +83,15 @@ class MenuAralikTesti(unittest.TestCase):
         main.menu_secimi_isle("99")
         cikti = mock_stdout.getvalue()
         self.assertIn("Gecersiz secim", cikti)
-        self.assertIn("0-16", cikti)
+        self.assertIn("0-17", cikti)
+
+    @patch("main._gelismis_benchmark_sonucunu_yazdir")
+    @patch("src.advanced_benchmarks.dayaniklilik_benchmark_calistir", return_value={"durum": "Tamamlandı"})
+    @patch("builtins.input", side_effect=["2", "10"])
+    def test_benchmark_menusu_dayaniklilik_suitini_yonlendirir(self, _mock_input, mock_dayaniklilik, mock_yazdir):
+        main.benchmark_calistir()
+        mock_dayaniklilik.assert_called_once_with(miktar=10)
+        mock_yazdir.assert_called_once_with({"durum": "Tamamlandı"})
 
 
 class ModelSecimiTesti(unittest.TestCase):

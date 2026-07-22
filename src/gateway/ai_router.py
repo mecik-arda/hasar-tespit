@@ -382,7 +382,7 @@ class AIRouter:
         cop_baraji = self._cop_baraji_al()
 
         if cop_mu and cop_guveni >= cop_baraji:
-            print(f"{Fore.RED}[✗] Görsel reddedildi: Alakasız/çöp içerik (güven: %{cop_guveni*100:.1f}){Style.RESET_ALL}")
+            print(f"{Fore.RED}[x] Görsel reddedildi: Alakasız/çöp içerik (güven: %{cop_guveni*100:.1f}){Style.RESET_ALL}")
             return {
                 "status": "rejected",
                 "route_to": None,
@@ -391,16 +391,16 @@ class AIRouter:
                 "clip_aktif": True,
             }
 
-        print(f"{Fore.GREEN}[✓] Çöp filtresi geçildi.{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}[+] Çöp filtresi geçildi.{Style.RESET_ALL}")
 
         print(f"{Fore.CYAN}[*] Aşama 2: Akıllı Kanal Yönlendirmesi...{Style.RESET_ALL}")
         kanal, kanal_guveni = self._kanal_yonlendir_hesapla(kanal_logitleri)
 
         if kanal == "RT-DETR":
-            print(f"{Fore.YELLOW}[→] Yönlendirme: RT-DETR (Kompleks Hasar Kanalı) - güven: %{kanal_guveni*100:.1f}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}[->] Yönlendirme: RT-DETR (Kompleks Hasar Kanalı) - güven: %{kanal_guveni*100:.1f}{Style.RESET_ALL}")
             sebep = "Geniş açı kaporta/göçük tespit edildi. Ağır çoklu-model akışına yönlendirildi."
         else:
-            print(f"{Fore.BLUE}[→] Yönlendirme: YOLO (Hızlı Çözüm Kanalı) - güven: %{kanal_guveni*100:.1f}{Style.RESET_ALL}")
+            print(f"{Fore.BLUE}[->] Yönlendirme: YOLO (Hızlı Çözüm Kanalı) - güven: %{kanal_guveni*100:.1f}{Style.RESET_ALL}")
             sebep = "Yakın çekim parça (lastik/far/cam) tespit edildi. Hızlı kanala yönlendirildi."
 
         return {

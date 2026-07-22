@@ -398,7 +398,54 @@ Kapsam: Denetim #10 düzeltmelerinin bağımsız doğrulaması, `indir_dataset.p
 | 16.07.2026 | #9 sonrası | 140 birim test | Geçti (103s) |
 | 16.07.2026 | #10 sonrası | 140 birim test | Geçti (61s) |
 | 16.07.2026 | #11 sonrası | 140 birim test | Geçti (58s, 0 uyarı) |
+| 22.07.2026 | #12 sonrası | 140 birim test | Geçti |
+| 22.07.2026 | #13 sonrası | 147 birim test | Geçti |
 
 ---
 
-> **Not:** Tüm düzeltmeler `kod-denetleyicisi` SKILL.md v2.0.0 standardına göre yapılmıştır. Toplam 11 denetim oturumunda 78 hata tespit edilip düzeltilmiştir. Denetim #11 sonrası 5 paralel alt ajan ile B001–B075 arası tüm düzeltmeler bağımsız olarak doğrulanmıştır.
+## 22.07.2026 — Denetim #12 (Uçtan Uca Mimari ve WBF Entegrasyonu Denetimi)
+
+Kapsam: `src/pipeline.py`, `config.yaml`, `README.md`
+
+### Orta
+
+| ID | Dosya | Satır | Kategori | Sorun | Düzeltme |
+|----|-------|-------|----------|-------|----------|
+| B076 | `src/pipeline.py` | 510-530 | Performans | `_wbf_kutu_birlestir` fonksiyonuna `yapilandirma` parametresi aktarılmıyordu, gereksiz I/O tetiklenebiliyordu | `yapilandirma` opsiyonel parametresi eklendi ve üst fonksiyonlardan iletildi |
+
+### Düşük
+
+| ID | Dosya | Satır | Kategori | Sorun | Düzeltme |
+|----|-------|-------|----------|-------|----------|
+| B077 | `src/pipeline.py` | 456-460 | Hata | DirectML cihaza taşıma hatası sessizce yutuluyordu | Try-except bloğuna özel loglama eklendi |
+| B078 | `src/pipeline.py` | 502-508 | Kalite | `_wbf_sinif_adi_bul` fonksiyonu O(N) liste araması yapıyordu | `yapilandirma` içindeki `siniflar` haritasından O(1) erişim sağlandı |
+
+---
+
+## 22.07.2026 — Denetim #13 (Hyper Benchmark Modülü ve Boru Hattı Denetimi)
+
+Kapsam: `src/benchmark.py`, `src/pipeline.py`, `main.py`, `testler/test_benchmark.py`
+
+### Düşük
+
+| ID | Dosya | Satır | Kategori | Sorun | Düzeltme |
+|----|-------|-------|----------|-------|----------|
+| B079 | `src/benchmark.py` | 37-58 | Performans | `bellek_olcu_al()` her çağrıda `psutil.Process()` örnekliliyordu | `MEVCUT_SUREC` modül seviyesinde önbelleklendi |
+| B080 | `src/benchmark.py` | 164-171 | Güvenlik | `_etiket_yolu_bul()` içinde etiket yolu birleştirmesinde Path Traversal doğrulaması yoktu | Target path için `.resolve()` doğrulaması eklendi |
+| B081 | `src/benchmark.py` | 148-152 | Kalite | `_miktari_uygula()` içinde `list()` kopyalama çağrısı tekrarlanıyordu | Kopyasız slice `gorseller[:miktar]` ile düzeltildi |
+
+---
+
+## 22.07.2026 — Denetim #14 (Uçtan Uca Genel Sistem ve Güvenlik Denetimi)
+
+Kapsam: `src/benchmark.py`, `src/pipeline.py`, `main.py`
+
+### Düşük
+
+| ID | Dosya | Satır | Kategori | Sorun | Düzeltme |
+|----|-------|-------|----------|-------|----------|
+| B082 | `src/benchmark.py` | 140-147 | Güvenlik | `_gorselleri_listele()` dizin taramasında `Path.resolve()` doğrulaması yoktu | Kök dizin için `Path(klasor).resolve()` doğrulaması eklendi |
+
+---
+
+> **Not:** Tüm düzeltmeler `kod-denetleyicisi` SKILL.md v2.0.0 standardına göre yapılmıştır. Toplam 14 denetim oturumunda 82 hata tespit edilip düzeltilmiştir. Toplam 147 testin tümü başarıyla geçmektedir.

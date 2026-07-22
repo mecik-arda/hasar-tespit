@@ -89,6 +89,13 @@ multi_model:
   model_optimizasyonu: openvino
   wbf_iou_esigi: 0.55
   guven_esigi: 0.25
+  wbf_sinif_agirliklari:
+    Cizik:
+      yolov12x: 2.0
+      rt-detr-v2-x: 1.0
+    Gocuk:
+      rt-detr-v2-x: 2.0
+      yolov12x: 1.0
 ai_router:
   model_adi: openai/clip-vit-base-patch32
   cop_baraji: 0.7

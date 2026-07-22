@@ -1,4 +1,5 @@
 import gc
+import threading
 import numpy as np
 from pathlib import Path
 from colorama import Fore, Style, init
@@ -13,6 +14,7 @@ _FLORENCE_PROCESSOR = None
 _FLORENCE_CIHAZ = None
 _KONTROL_EDILDI = False
 _MEVCUT = False
+_FLORENCE_KILIDI = threading.RLock()
 
 CAPRAZ_SORGULAR = {
     "Cizik": "<DETAILED_CAPTION> Is this a scratch on the car paint or just a light reflection or shadow?",
@@ -107,7 +109,7 @@ def _florence_modeli_yukle(model_adi, otomatik_yedekleme_cpu=True):
     return model, islemci, _FLORENCE_CIHAZ
 
 
-def _florence_modelini_bosalt():
+def _florence_modelini_bosalt_kilitsiz():
     global _FLORENCE_MODEL, _FLORENCE_PROCESSOR
     _FLORENCE_MODEL = None
     _FLORENCE_PROCESSOR = None
@@ -118,6 +120,11 @@ def _florence_modelini_bosalt():
             torch.cuda.empty_cache()
     except (ImportError, Exception):
         pass
+
+
+def _florence_modelini_bosalt():
+    with _FLORENCE_KILIDI:
+        _florence_modelini_bosalt_kilitsiz()
 
 
 def _bolge_kirp(gorsel, kutu):
@@ -210,7 +217,7 @@ def _hasar_siniflandir(metin, ekstra_siniflar=None):
     return "Bilinmeyen"
 
 
-def denetle(tespitler_havuzu, gorsel, yapilandirma=None):
+def _denetle_kilitsiz(tespitler_havuzu, gorsel, yapilandirma=None):
     if not _florence_kullanilabilir_mi():
         print(f"{Fore.RED}[-] Florence-2 kutuphanesi yuklu degil. 'pip install transformers' calistirin.{Style.RESET_ALL}")
         return tespitler_havuzu
@@ -348,6 +355,11 @@ def denetle(tespitler_havuzu, gorsel, yapilandirma=None):
         "boxes": dogrulanmis_tespitler,
         "masks": tespitler_havuzu.get("masks", []),
     }
+
+
+def denetle(tespitler_havuzu, gorsel, yapilandirma=None):
+    with _FLORENCE_KILIDI:
+        return _denetle_kilitsiz(tespitler_havuzu, gorsel, yapilandirma)
 
 
 if __name__ == "__main__":

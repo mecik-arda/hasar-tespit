@@ -10,10 +10,11 @@ pyyaml>=6.0
 colorama>=0.4.6
 labelImg>=1.8.6,<2.0
 icrawler>=0.6.6
+roboflow>=1.1.0
 
 # --- Opsiyonel GPU hizlandirmasi ---
-# Intel Arc / AMD / NVIDIA (Windows) - DirectX 12 GPU cikarim:
-torch_directml>=0.2.5
+# Intel Arc / AMD / NVIDIA (Windows) - DirectX 12 GPU cikarim (Python <=3.11 opsiyonel):
+# torch_directml>=0.2.5
 # Intel GPU / NPU cikarim - OpenVINO:
 openvino>=2024.0
 
@@ -25,7 +26,7 @@ Pillow>=9.0.0
 einops>=0.8.0
 # PyTorch Goruntu Modelleri altyapisi:
 timm>=1.0.0
-# SAM 2 (Meta Segment Anything 2):
-sam-2>=1.0
+# SAM 2 (Meta Segment Anything 2 - Ultralytics yerleşik destekler):
+# SAM 2 desteği ultralytics paketine dahildir.
 # WBF (Weighted Boxes Fusion) kutu birlestirme:
 ensemble-boxes>=1.0.9

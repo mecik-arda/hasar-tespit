@@ -5,7 +5,23 @@
 
 Bu proje, görüntü işleme ve derin öğrenme (YOLO / RT-DETR) algoritmaları kullanarak araçlar üzerindeki fiziksel hasarları (Çizik, Göçük, Cam Kırığı, Pas, Kuş Pisliği, Far Kırığı, Patlak Lastik) tespit etmek amacıyla geliştirilmiş uçtan uca bir yapay zeka sistemidir.
 
+
 Sistem, **Çoklu Model (Multi-Model) Mimarisi** ile donatılmıştır: Kutu çıkarımı için **RT-DETRv2-X** ve **YOLOv12x**, piksel seviyesinde göçük maskelemesi için **SAM 2**, son denetim ve nihai etiketleme için ise Microsoft'un VLM'i **Florence-2** ardışık olarak çalışır. Modeller RAM havuzu üzerinden birbirine veri aktarır; her model işi bitince bellekten silinerek VRAM optimize edilir.
+
+---
+
+## Model Performansı ve Başarım Durumu (Eğitim Sonuçları)
+
+Model eğitimleri Google Colab üzerinde NVIDIA A100 GPU (80GB VRAM) kullanılarak gerçekleştirilmiştir:
+
+| Model Mimarisi | Epoch / Tur | mAP50 (Genel Başarı) | Precision (Nokta Atışı) | Recall (Hasar Yakalama) | mAP50-95 (Milimetrik Çizim) | Durum |
+|---|---|---|---|---|---|---|
+| **YOLOv12x** | 130 Epoch | **%93.7 (0.937)** | **%94.6 (0.946)** | **%89.8 (0.898)** | **%82.2 (0.822)** | **Entegre Edildi (`yolov12x.pt`)** |
+| **RT-DETR-x** | 54 Epoch | **%95.9 (0.959)** | **%94.6 (0.946)** | **%93.5 (0.935)** | **%84.9 (0.849)** | Eğitimi Devam Ediyor / Lider |
+
+> **Güncelleme Notu:** A100 GPU üzerinde 130 tur boyunca eğitilen ve **%93.7 mAP50** ile **%82.2 mAP50-95** rekor kırış başarısına ulaşan en güncel `yolov12x.pt` modeli projeye dahil edilmiş ve entegrasyonu tamamlanmıştır.
+
+---
 
 Ayrıca sistem, **CLIP tabanlı Akıllı Yönlendirici (AI Router)** mimarisi ile korunur: Kullanıcı fotoğraf yüklediğinde CLIP modeli önce görüntüyü çöp filtresinden geçirir (selfie, fatura, hayvan vb. alakasız görseller engellenir), ardından temiz görselleri içeriklerine göre en uygun kanala yönlendirir — yakın çekim parçalar (lastik, far) hızlı **YOLO** kanalına, geniş açı kaporta hasarları ise ağır **RT-DETR** çoklu-model akışına sevk edilir.
 
@@ -173,7 +189,7 @@ Eğitilmiş model üzerinden çıkarım (inference) işlemlerini yürütür. YOL
 * `toplu_hasar_tespiti_yap()`: **`hasar-ornek`** klasöründeki fotoğrafları topluca okuyup otomatik işler ve etiketlenmiş sonuçları tek bir genel JSON raporu eşliğinde **`hasar-sonucu`** klasörüne yazar.
 * `coklu_model_hasar_tespiti_yap()`: **Çoklu Model Mimarisi** ile tekil görselde hasar tespiti yapar. RT-DETRv2-X → YOLOv12x → WBF birleştirme → SAM 2 maskeleme → Florence-2 denetimi ardışık zincirini çalıştırır. Her model işi bitince `del model` + `gc.collect()` ile bellekten silinir, VRAM optimize edilir. VRAM dolarsa otomatik CPU'ya düşer (Auto-Fallback).
 * `coklu_model_toplu_tespiti_yap()`: Çoklu model mimarisini klasördeki birden fazla görsel için toplu (batch) olarak çalıştırır.
-* `_wbf_kutu_birlestir()`: Weighted Boxes Fusion (WBF) algoritması ile RT-DETR ve YOLO'dan gelen üst üste binen kutuları teke düşürür, güven skorlarını harmanlar.
+* `_wbf_kutu_birlestir()`: Sınıf bazlı ağırlıklandırma (Class-Based Weighting) destekli Weighted Boxes Fusion (WBF) algoritması ile RT-DETR ve YOLO'dan gelen üst üste binen kutuları teke düşürür, güven skorlarını ve model ağırlıklarını sınıf bazında harmanlar.
 * `_model_bosalt()`: İşlemi biten modeli RAM/VRAM'den temizler, `gc.collect()` ve `torch.cuda.empty_cache()` çağırır.
 
 ### `src/inspector_florence.py`
@@ -182,6 +198,24 @@ Microsoft Florence-2 Vision-Language Model (VLM) ile son denetim ve etiketleme y
 * `_florence_modeli_yukle()`: Florence-2 modelini HuggingFace `transformers` üzerinden CUDA/DirectML/CPU backend'lerinden uygun olanla yükler.
 * `_florence_modelini_bosalt()`: Florence-2 modelini bellekten tamamen temizler.
 * `_hasar_siniflandir()`: Florence-2'nin metin çıktısını (Örn: "dent", "scratch") proje sınıf adlarına (Örn: "Gocuk", "Cizik") eşler.
+
+### `src/benchmark.py`
+Uçtan uca performans, doğruluk, bellek ve backend değerlendirmesini yürütür:
+* `tekil_model_benchmark_calistir()`: Model yükleme ve ilk çıkarımı soğuk başlangıç olarak, aynı model örneğiyle sonraki çıkarımları sıcak çalışma olarak ölçer.
+* `coklu_model_benchmark_calistir()`: RT-DETR, YOLO, WBF, SAM 2 ve Florence-2 aşamalarını ayrı ayrı ölçer; modelleri sıcak turlar arasında bellekte tutar.
+* `etiketli_dogruluk_benchmark_calistir()`: YOLO etiketlerini okuyarak sınıf duyarlı Precision, Recall, TP, FP, FN, mAP50 ve mAP50-95 metriklerini hesaplar.
+* `donanim_backend_benchmark_calistir()`: PyTorch CPU, CUDA, DirectML ve OpenVINO backend'lerini güvenli biçimde yoklar ve yalnızca kullanılabilir olanları çalıştırır.
+* `bellek_olcu_al()`: Süreç RAM'i, sistem RAM'i ve kullanılabiliyorsa CUDA VRAM değerlerini toplar.
+* `rapor_kaydet()`: Sonuçları `runs/benchmark/` altında zaman damgalı JSON ve Markdown raporlarına kaydeder.
+
+### `src/advanced_benchmarks.py`
+Çevresel dayanıklılık, hiperparametre arama, hata analizi ve yük testlerini yürütür:
+* `dayaniklilik_benchmark_calistir()`: Etiketli görsellerde karanlık, parlama, hareket bulanıklığı, sis ve Gauss gürültüsünü üç şiddet düzeyinde deterministik olarak uygular; temel mAP değerine göre kaybı ölçer.
+* `wbf_grid_search_calistir()`: Dedektör çıktılarını bir kez önbelleğe alır, WBF IoU ve güven eşikleri için 99 kaba kombinasyonu tarar ve istenirse en iyi bölgede `0.01` çözünürlüklü ince arama yapar. Önerileri raporlar, `config.yaml` dosyasını değiştirmez.
+* `sinif_karisiklik_matrisi_calistir()`: Normalize karışıklık matrisi, sınıf bazlı TP/FP/FN değerleri ve yanlış sınıflandırmaların ortalama IoU oranlarını üretir.
+* `eszamanlilik_stres_testi_calistir()`: `ThreadPoolExecutor` ile 5, 10 ve 20 iş parçacıklı yük seviyelerini RAM/VRAM ön kontrolünden sonra ölçer; throughput, p95 gecikme ve olası bellek sızıntısını raporlar.
+* `vlm_dogrulama_benchmark_calistir()`: Artırılmış verileri dışarıda bırakarak sınıflar arasında dengeli Florence-2 doğruluk örnekleri ve hasarsız arka plan kırpımlarında halüsinasyon oranı üretir.
+* `gelismis_benchmark_suitini_calistir()`: Beş gelişmiş testi tek çalıştırmada birleştirir ve `runs/benchmark/` altında JSON ile Markdown raporu oluşturur.
 
 ### `src/validator.py`
 Etiketleme sonrası kalite kontrol ve tutarlılık denetimi yapar. 7 aşamalı otomatik kontrol:
@@ -208,7 +242,9 @@ Eğitilmiş modeli donanıma özel optimize formatlara dönüştürür:
 Projenin sınırlarını ve hata yönetimini doğrulayan 18 adet unittest modülünü barındırır (toplam 140 test):
 * `test_donanim.py` — CPU/RAM/GPU/NPU profil yapısı, GPU Entegre/Harici ayrımı, cihaz seçimi (10 test)
 * `test_veri_araclari.py` — config.yaml bütünlüğü, model.tur geçerliliği ve sınıf sayısı kontrolü (3 test)
-* `test_menu.py` — Menü 0-16 aralığı, model seçimi, çoklu-model alt seçimleri, orkestrasyon (11 test)
+* `test_menu.py` — Menü 0-17 aralığı, model seçimi, çoklu-model alt seçimleri, orkestrasyon (11 test)
+* `test_benchmark.py` — Bellek ölçümü, veri sızıntısı filtresi, mAP hesaplaması, pipeline zamanlaması ve çift rapor üretimi
+* `test_advanced_benchmarks.py` — Sentetik bozulmalar, önbellekli WBF araması, karışıklık matrisi, eşzamanlı adaptör, VLM skorları ve gelişmiş rapor üretimi
 * `test_validator.py` — Etiket format, sınır, sınıf ID, boyut, overlap, eşleşme ve dağılım kontrolleri (14 test)
 * `test_gateway.py` — CLIP tabanlı Akıllı Yönlendirici çöp filtresi, kanal yönlendirme, yedek mod (16 test)
 * `test_pipeline_multi.py` — Çoklu model (RT-DETR + YOLO + SAM 2 + Florence-2) orkestrasyon entegrasyonu
@@ -235,7 +271,7 @@ Sistemi başlatmak için terminalinizde aşağıdaki komutu çalıştırmanız y
 python main.py
 ```
 
-Açılan menü Rünik kategorilere (ᛟ, ᛉ, ᛏ, ᛤ) ayrılmış olup `1`'den `16`'ya kadar mantıksal bir sırayla dizilmiştir. 
+Açılan menü Rünik kategorilere (ᛟ, ᛉ, ᛏ, ᛤ) ayrılmış olup `1`'den `17`'ye kadar mantıksal bir sırayla dizilmiştir.
 **Önerilen İş Akışı:** 1 → 9 → 10 → 11 → 2 → 3 → 4 → 5 → 6
 
 | Kategori | Menü | Açıklama |
@@ -256,6 +292,7 @@ Açılan menü Rünik kategorilere (ᛟ, ᛉ, ᛏ, ᛤ) ayrılmış olup `1`'den
 | | `[14]` Etiket Doğrulama | Etiketleri %80 overlap, boyut ve sınıf bazında 7 aşamada denetler |
 | **ᛤ BİLGİ** | `[15]` Model Bilgileri | Son eğitim tarihi, model boyutları ve parametrelerini gösterir |
 | **ᛟ YÖNLENDİRİCİ** | `[16]` Akıllı Yönlendirici (Gateway) Testi | CLIP modeli ile çöp filtresi ve kanal yönlendirme testini çalıştırır |
+| **HYPER BENCHMARK** | `[17]` Hyper Benchmark ve Sistem Performans Testi | Standart performans testlerinin yanında çevresel dayanıklılık, önbellekli WBF Grid Search, sınıf karışıklığı, eşzamanlı stres ve Florence-2 doğrulama süitlerini sunar |
 | | `[0]` Çıkış | Uygulamayı kapatır |
 
 > **İpucu:** Herhangi bir giriş ekranında `/yardim` (veya `/help`) yazarak o ekrana özel yardım alabilirsiniz.
@@ -579,21 +616,28 @@ Toplu işleme sırasında her görsel için tüm model zinciri (RT-DETR → YOLO
 
 ```yaml
 multi_model:
-  aktif: true                                          # Çoklu model modunu aç/kapat
+  aktif: true
   siralama: ["rt-detr-v2-x", "yolov12x", "sam2_small", "florence-2"]
   agirliklar:
-    rtdetr: rtdetr-v2-x.pt                             # RT-DETR model ağırlığı
-    yolo: yolov12x.pt                                  # YOLO model ağırlığı
-    sam: sam2_s.pt                                     # SAM 2 model ağırlığı
+    rtdetr: rtdetr-v2-x.pt
+    yolo: yolov12x.pt
+    sam: sam2_s.pt
   denetleyici_ayarlari:
-    model: microsoft/Florence-2-base                   # HuggingFace model adı
-    gorev: <OD>                                        # Object Detection görevi
-    ekstra_siniflar: ["lastik patlagi", "flat tire"]   # Ekstra sınıf eşleştirme
-  ram_optimizasyonu: true                              # Modüller arası empty_cache tetikler
-  otomatik_yedekleme_cpu: true                         # VRAM dolumunda CPU'ya kay
-  model_optimizasyonu: openvino                        # openvino veya onnx
-  wbf_iou_esigi: 0.55                                  # WBF IoU eşiği
-  guven_esigi: 0.25                                    # Minimum güven skoru
+    model: microsoft/Florence-2-base
+    gorev: <OD>
+    ekstra_siniflar: ["lastik patlagi", "flat tire"]
+  ram_optimizasyonu: true
+  otomatik_yedekleme_cpu: true
+  model_optimizasyonu: openvino
+  wbf_iou_esigi: 0.55
+  guven_esigi: 0.25
+  wbf_sinif_agirliklari:
+    Cizik:
+      yolov12x: 2.0
+      rt-detr-v2-x: 1.0
+    Gocuk:
+      rt-detr-v2-x: 2.0
+      yolov12x: 1.0
 ```
 
 ### Çoklu Model Kurulum Gereksinimleri

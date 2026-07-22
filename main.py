@@ -31,13 +31,14 @@ YARDIM_METINLERI = {
     "ana_menu": """
   {c}ANA MENU YARDIM{rs}
   {c}========================================{rs}
-  Secim yapmak icin 0-16 arasi bir rakam girin.
+  Secim yapmak icin 0-17 arasi bir rakam girin.
 
   {w}1-4{rs}   Veri hazirlama (donanim, etiket, artirim, bolme)
   {w}5-8{rs}   Model egitimi, hasar tespiti, rapor, testler
   {w}9-11{rs}  Model secimi, orkestrasyon, cikarim profili
   {w}12-15{rs} Gorsel toplama, kalite kontrol, etiket dogrulama, model bilgisi
   {w}16{rs}    Akıllı Yönlendirici (Gateway) testi
+  {w}17{rs}    Hyper Benchmark ve sistem performans testi
   {w}0{rs}     Cikis
 """,
     "egitim": """
@@ -168,6 +169,9 @@ def menuyu_yazdir():
     print()
     print(f"{Fore.YELLOW}  ᛟ [ AKILLI YONLENDIRICI ]{Style.RESET_ALL}")
     print(f"  {Fore.WHITE}[16] {Fore.YELLOW}Akıllı Yönlendirici (Gateway) Testi{Style.RESET_ALL}")
+    print()
+    print(f"{Fore.YELLOW}  [ HYPER BENCHMARK ]{Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}[17] {Fore.YELLOW}Hyper Benchmark ve Sistem Performans Testi{Style.RESET_ALL}")
     print()
     print(f"  {Fore.WHITE}[0] {Fore.RED}Cikis{Style.RESET_ALL}")
     print()
@@ -790,6 +794,207 @@ def gateway_testi_calistir():
     print()
 
 
+def _gelismis_benchmark_miktari_al():
+    miktar_girdisi = input(f"{Fore.CYAN}  Ornek sayisi [10-200, Enter=50, tum]: {Style.RESET_ALL}").strip().lower()
+    if not miktar_girdisi:
+        return 50
+    if miktar_girdisi in ("tum", "tumu", "all"):
+        return None
+    try:
+        miktar = int(miktar_girdisi)
+    except ValueError:
+        print(f"{Fore.RED}[-] Gecersiz ornek sayisi.{Style.RESET_ALL}")
+        return False
+    if miktar < 10 or miktar > 200:
+        print(f"{Fore.RED}[-] Ornek sayisi 10 ile 200 arasinda olmalidir.{Style.RESET_ALL}")
+        return False
+    return miktar
+
+
+def _gelismis_benchmark_sonucunu_yazdir(rapor):
+    print()
+    print(f"{Fore.GREEN}[+] Gelismis benchmark sonucu: {rapor.get('durum', 'Bilinmiyor')}{Style.RESET_ALL}")
+    rapor_dosyalari = rapor.get("rapor_dosyalari", {})
+    if rapor_dosyalari:
+        print(f"    JSON raporu    : {rapor_dosyalari.get('json', 'Olusturulamadi')}")
+        print(f"    Markdown raporu: {rapor_dosyalari.get('markdown', 'Olusturulamadi')}")
+    print()
+
+
+def _wbf_onerisini_uygulamayi_sor(rapor):
+    wbf_raporu = rapor.get("wbf_grid_search", rapor)
+    oneri = wbf_raporu.get("onerilen_parametreler", {})
+    if not oneri:
+        return
+    print()
+    print(f"{Fore.YELLOW}[*] Onerilen WBF IoU esigi : {oneri.get('wbf_iou_esigi')}{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}[*] Onerilen guven esigi   : {oneri.get('guven_esigi')}{Style.RESET_ALL}")
+    onay = input(f"{Fore.CYAN}  Bu degerler config.yaml dosyasina uygulansin mi? (e/H): {Style.RESET_ALL}").strip().lower()
+    if onay not in ("e", "evet", "y", "yes", "1"):
+        print(f"{Fore.YELLOW}[!] Oneri raporlandi, yapilandirma degistirilmedi.{Style.RESET_ALL}")
+        return
+    from src.advanced_benchmarks import wbf_onerisini_yapilandirmaya_uygula
+    uygulama = wbf_onerisini_yapilandirmaya_uygula(rapor)
+    print(f"{Fore.GREEN}[+] WBF ayarlari uygulandi: {uygulama['yeni_degerler']}{Style.RESET_ALL}")
+
+
+def _gelismis_benchmark_calistir(secim):
+    from src.advanced_benchmarks import (
+        dayaniklilik_benchmark_calistir,
+        eszamanlilik_stres_testi_calistir,
+        gelismis_benchmark_suitini_calistir,
+        sinif_karisiklik_matrisi_calistir,
+        vlm_dogrulama_benchmark_calistir,
+        wbf_grid_search_calistir,
+    )
+    if secim == "5":
+        print(f"{Fore.CYAN}[*] Eszamanlilik stres testi baslatiliyor...{Style.RESET_ALL}")
+        _gelismis_benchmark_sonucunu_yazdir(eszamanlilik_stres_testi_calistir())
+        return
+    miktar = _gelismis_benchmark_miktari_al()
+    if miktar is False:
+        return
+    if secim == "2":
+        print(f"{Fore.CYAN}[*] Cevresel bozulma dayaniklilik testi baslatiliyor...{Style.RESET_ALL}")
+        rapor = dayaniklilik_benchmark_calistir(miktar=miktar)
+    elif secim == "3":
+        ince_secim = input(f"{Fore.CYAN}  En iyi bolgede 0.01 ince arama yapilsin mi? (e/H): {Style.RESET_ALL}").strip().lower()
+        ince_ayar = ince_secim in ("e", "evet", "y", "yes", "1")
+        print(f"{Fore.CYAN}[*] Onbellekli WBF Grid Search baslatiliyor...{Style.RESET_ALL}")
+        rapor = wbf_grid_search_calistir(miktar=miktar, ince_ayar=ince_ayar)
+    elif secim == "4":
+        print(f"{Fore.CYAN}[*] Sinif karisiklik matrisi olusturuluyor...{Style.RESET_ALL}")
+        rapor = sinif_karisiklik_matrisi_calistir(miktar=miktar)
+    elif secim == "6":
+        print(f"{Fore.CYAN}[*] Florence-2 dogrulama ve halusinasyon testi baslatiliyor...{Style.RESET_ALL}")
+        rapor = vlm_dogrulama_benchmark_calistir(ornek_sayisi=miktar)
+    else:
+        ince_secim = input(f"{Fore.CYAN}  WBF icin 0.01 ince arama yapilsin mi? (e/H): {Style.RESET_ALL}").strip().lower()
+        ince_ayar = ince_secim in ("e", "evet", "y", "yes", "1")
+        print(f"{Fore.CYAN}[*] Gelismis benchmark suiti baslatiliyor...{Style.RESET_ALL}")
+        rapor = gelismis_benchmark_suitini_calistir(miktar=miktar, ince_ayar=ince_ayar)
+    if secim in ("3", "7") and rapor.get("durum") == "Tamamlandı":
+        _wbf_onerisini_uygulamayi_sor(rapor)
+    _gelismis_benchmark_sonucunu_yazdir(rapor)
+
+
+def benchmark_calistir():
+    print()
+    print(f"{Fore.YELLOW}  [HYPER BENCHMARK VE SISTEM PERFORMANS TESTI]{Style.RESET_ALL}")
+    print()
+    print(f"  {Fore.WHITE}[1] {Fore.YELLOW}Standart Hyper Benchmark{Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}[2] {Fore.YELLOW}Cevresel Bozulma Dayaniklilik Testi{Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}[3] {Fore.YELLOW}Onbellekli WBF Grid Search{Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}[4] {Fore.YELLOW}Sinif Karisiklik Matrisi{Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}[5] {Fore.YELLOW}Eszamanlilik ve Bellek Stres Testi{Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}[6] {Fore.YELLOW}Florence-2 Dogrulama ve Halusinasyon Testi{Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}[7] {Fore.YELLOW}Tam Gelismis Benchmark Suiti{Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}[0] {Fore.RED}Iptal{Style.RESET_ALL}")
+    print()
+    secim = input(f"{Fore.CYAN}  Benchmark suiti [0-7]: {Style.RESET_ALL}").strip()
+    if secim in ("0", ""):
+        print(f"{Fore.YELLOW}[!] Benchmark iptal edildi.{Style.RESET_ALL}")
+        print()
+        return
+    if secim == "1":
+        _standart_benchmark_calistir()
+        return
+    if secim not in ("2", "3", "4", "5", "6", "7"):
+        print(f"{Fore.RED}[-] Gecersiz benchmark suiti.{Style.RESET_ALL}")
+        print()
+        return
+    try:
+        _gelismis_benchmark_calistir(secim)
+    except Exception as hata:
+        print(f"{Fore.RED}[-] Gelismis benchmark tamamlanamadi: {hata}{Style.RESET_ALL}")
+        print()
+
+
+def _standart_benchmark_calistir():
+    print()
+    print(f"{Fore.YELLOW}  [HYPER BENCHMARK VE SISTEM PERFORMANS TESTI]{Style.RESET_ALL}")
+    print()
+    print(f"  {Fore.WHITE}[1] {Fore.YELLOW}Gercek Cikarim Testi (hasar-ornek){Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}[2] {Fore.YELLOW}Etiketli Dogruluk Testi{Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}[3] {Fore.YELLOW}Tam Uctan Uca Suit{Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}[0] {Fore.RED}Iptal{Style.RESET_ALL}")
+    print()
+    hedef_secimi = input(f"{Fore.CYAN}  Benchmark hedefi [0-3]: {Style.RESET_ALL}").strip()
+    hedefler = {"1": "gercek", "2": "etiketli", "3": "tam"}
+    if hedef_secimi in ("0", ""):
+        print(f"{Fore.YELLOW}[!] Benchmark iptal edildi.{Style.RESET_ALL}")
+        print()
+        return
+    if hedef_secimi not in hedefler:
+        print(f"{Fore.RED}[-] Gecersiz benchmark hedefi.{Style.RESET_ALL}")
+        print()
+        return
+
+    print()
+    print(f"  {Fore.WHITE}[1] {Fore.YELLOW}Varsayilan 10 Gorsel{Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}[2] {Fore.YELLOW}Tum Gorseller{Style.RESET_ALL}")
+    print(f"  {Fore.WHITE}[3] {Fore.YELLOW}Ozel Miktar{Style.RESET_ALL}")
+    print()
+    miktar_secimi = input(f"{Fore.CYAN}  Gorsel miktari [1-3, Enter=1]: {Style.RESET_ALL}").strip() or "1"
+    if miktar_secimi == "1":
+        miktar = 10
+    elif miktar_secimi == "2":
+        miktar = None
+    elif miktar_secimi == "3":
+        ozel_miktar = input(f"{Fore.CYAN}  Gorsel adedi: {Style.RESET_ALL}").strip()
+        try:
+            miktar = int(ozel_miktar)
+        except ValueError:
+            print(f"{Fore.RED}[-] Gecersiz gorsel adedi.{Style.RESET_ALL}")
+            print()
+            return
+        if miktar <= 0:
+            print(f"{Fore.RED}[-] Gorsel adedi sifirdan buyuk olmalidir.{Style.RESET_ALL}")
+            print()
+            return
+    else:
+        print(f"{Fore.RED}[-] Gecersiz miktar secimi.{Style.RESET_ALL}")
+        print()
+        return
+
+    hedef = hedefler[hedef_secimi]
+    artirilmis_dahil = False
+    if hedef in ("etiketli", "tam"):
+        artirilmis_secimi = input(
+            f"{Fore.CYAN}  Artirilmis gorseller dogruluk testine dahil edilsin mi? (e/H): {Style.RESET_ALL}"
+        ).strip().lower()
+        artirilmis_dahil = artirilmis_secimi in ("e", "evet", "y", "yes", "1")
+
+    backend_karsilastir = False
+    if hedef in ("gercek", "tam"):
+        backend_secimi = input(
+            f"{Fore.CYAN}  CPU, CUDA, DirectML ve OpenVINO karsilastirilsin mi? (E/h): {Style.RESET_ALL}"
+        ).strip().lower()
+        backend_karsilastir = backend_secimi not in ("h", "hayir", "n", "no", "0")
+
+    print()
+    print(f"{Fore.CYAN}[*] Hyper benchmark baslatiliyor...{Style.RESET_ALL}")
+    try:
+        from src.benchmark import benchmark_suitini_calistir
+        rapor = benchmark_suitini_calistir(
+            hedef=hedef,
+            miktar=miktar,
+            artirilmis_dahil=artirilmis_dahil,
+            backend_karsilastir=backend_karsilastir,
+        )
+    except Exception as hata:
+        print(f"{Fore.RED}[-] Benchmark tamamlanamadi: {hata}{Style.RESET_ALL}")
+        print()
+        return
+
+    rapor_dosyalari = rapor.get("rapor_dosyalari", {})
+    print()
+    print(f"{Fore.GREEN}[+] Hyper benchmark tamamlandi.{Style.RESET_ALL}")
+    print(f"    JSON raporu    : {rapor_dosyalari.get('json', 'Olusturulamadi')}")
+    print(f"    Markdown raporu: {rapor_dosyalari.get('markdown', 'Olusturulamadi')}")
+    print()
+
+
 def cikis_yap():
     print()
     print(f"{Fore.GREEN}[+] HADES DETECTOR kapatiliyor...{Style.RESET_ALL}")
@@ -870,11 +1075,13 @@ def menu_secimi_isle(secim):
         model_bilgisi_calistir()
     elif secim == "16":
         gateway_testi_calistir()
+    elif secim == "17":
+        benchmark_calistir()
     elif secim == "0":
         cikis_yap()
         return False
     else:
-        print(f"{Fore.RED}[-] Gecersiz secim! Lutfen 0-16 arasinda bir deger girin.{Style.RESET_ALL}")
+        print(f"{Fore.RED}[-] Gecersiz secim! Lutfen 0-17 arasinda bir deger girin.{Style.RESET_ALL}")
         print()
     return True
 
@@ -885,7 +1092,7 @@ def ana_dongu():
         try:
             basligi_yazdir()
             menuyu_yazdir()
-            secim = yardimli_input(f"\n{Fore.CYAN}  Seciminiz [0-16]: {Style.RESET_ALL}", "ana_menu")
+            secim = yardimli_input(f"\n{Fore.CYAN}  Seciminiz [0-17]: {Style.RESET_ALL}", "ana_menu")
             calisiyor = menu_secimi_isle(secim)
             if calisiyor:
                 input(f"\n{Fore.YELLOW}  Devam etmek icin Enter'a basin...{Style.RESET_ALL}")
