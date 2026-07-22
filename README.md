@@ -570,26 +570,47 @@ Sistem, `config.yaml`'daki `multi_model.aktif: true` ayarı ile **Çoklu Model M
 
 ```mermaid
 flowchart TD
-    Input["Girdi: Kullanıcı Görseli"] --> Filter{"CLIP Çöp Filtresi"}
-    Filter -->|Alakasız| Discard["İşlem reddedildi"]
-    Filter -->|Geçerli araç| Router{"CLIP Akıllı Yönlendirici"}
-    Router -->|Yakın çekim| Fast["Hızlı kanal: YOLOv12x"]
-    Fast --> Output["Nihai çıktı: işaretli görsel ve JSON raporu"]
-    Router -->|Geniş açı| RTDETR["RT-DETRv2-X"]
-    Router -->|Geniş açı| YOLO["YOLOv12x"]
-    RTDETR --> WBF["WBF ile kutu birleştirme"]
-    YOLO --> WBF
-    WBF --> SAM["SAM 2: göçük maskeleme"]
-    WBF --> Pool["RAM havuzu: tespitler ve maskeler"]
-    SAM --> Pool
-    Pool --> Florence["Florence-2: son denetim ve etiketleme"]
-    Florence --> Output
+    Input["Girdi: kullanıcı görseli veya klasörü"] --> Mode{"İşlem türü"}
+
+    Mode -->|Tek görsel| GatewayChoice{"CLIP Router etkinleştirildi mi?"}
+    GatewayChoice -->|Hayır| SingleMulti{"multi_model.aktif"}
+    GatewayChoice -->|Evet| CLIP["CLIP: çöp filtresi ve kanal kararı"]
+    CLIP -->|Alakasız| Discard["İşlem reddedilir"]
+    CLIP -->|Hızlı kanal| Single["Tek-model çıkarımı: son best.pt veya config ağırlığı"]
+    CLIP -->|Kompleks kanal| RoutedMulti{"multi_model.aktif"}
+    RoutedMulti -->|Hayır| Single
+    RoutedMulti -->|Evet| MultiStart["Çoklu-model tek-görsel akışı"]
+    SingleMulti -->|Hayır| Single
+    SingleMulti -->|Evet| MultiStart
+
+    MultiStart --> RTDETR["RT-DETRv2-X taraması"]
+    RTDETR --> RTUnload["Kutular RAM havuzuna eklenir ve model boşaltılır"]
+    RTUnload --> YOLO["YOLOv12x taraması"]
+    YOLO --> YOLOUnload["Kutular RAM havuzuna eklenir ve model boşaltılır"]
+    YOLOUnload --> WBF["WBF: sınıf bazlı kutu birleştirme"]
+    WBF --> SAM["SAM 2: göçükleri, göçük yoksa en güvenli kutuları maskeler"]
+    SAM --> Florence["Florence-2: kırpılmış kutu ve maskeleri denetler"]
+    Florence --> SingleOutput["Çıktı: işaretli görsel ve ayara bağlı JSON"]
+    Single --> SingleOutput
+
+    Mode -->|Toplu işlem| BatchMulti{"multi_model.aktif"}
+    BatchMulti -->|Hayır| ClassicBatch["Klasik tek-model toplu çıkarım"]
+    BatchMulti -->|Evet| Chunk["Görseller en fazla 50 öğelik chunk'lara ayrılır"]
+    Chunk --> BatchRT["RT-DETR tüm chunk'ı tarar ve boşaltılır"]
+    BatchRT --> BatchYOLO["YOLO tüm chunk'ı tarar ve boşaltılır"]
+    BatchYOLO --> BatchWBF["Her görsel için WBF uygulanır"]
+    BatchWBF --> BatchSAM["SAM 2 ile chunk maskelenir"]
+    BatchSAM --> BatchFlorence["Florence-2 görselleri sırayla denetler"]
+    BatchFlorence --> BatchOutput["Çıktı: işaretli görseller ve genel JSON raporu"]
+    ClassicBatch --> BatchOutput
+
+    MultiStart -.-> SequenceNote["Mevcut kod tüm aşamaları çalıştırır; siralama listesi yalnızca raporlanır"]
     classDef routing fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#10243e
     classDef model fill:#e0e7ff,stroke:#4f46e5,stroke-width:2px,color:#10243e
     classDef memory fill:#fce7f3,stroke:#db2777,stroke-width:2px,color:#10243e
-    class Filter,Router routing
-    class RTDETR,YOLO,WBF,SAM,Florence model
-    class Pool memory
+    class GatewayChoice,CLIP,SingleMulti,RoutedMulti,BatchMulti routing
+    class Single,RTDETR,YOLO,WBF,SAM,Florence,ClassicBatch,BatchRT,BatchYOLO,BatchWBF,BatchSAM,BatchFlorence model
+    class RTUnload,YOLOUnload,Chunk,SequenceNote memory
 ```
 
 ### Bellek Yönetimi (RAM Optimizasyonu)
@@ -612,12 +633,14 @@ Her model yüklenirken VRAM dolması (Out of Memory) durumu `try-except` ile yak
 
 Menüden `[6] Hasar Tespiti` seçildiğinde iki alt seçenek sunulur:
 
-1. **Tek Görsel İşle**: Belirli bir dosyada çoklu model tespiti yapar
-2. **Klasörden Toplu İşle (Batch Processing)**: Belirtilen klasördeki tüm görselleri sırayla işler
+1. **Tek Görsel İşle**: CLIP Router tercihini ve aktif çıkarım profilini kullanarak belirli bir dosyayı işler
+2. **Klasörden Toplu İşle (Batch Processing)**: Belirtilen klasördeki görselleri tek-model veya çoklu-model toplu akışıyla işler
 
-Toplu işleme sırasında her görsel için tüm model zinciri (RT-DETR → YOLO → WBF → SAM 2 → Florence-2) sırayla çalıştırılır. İşlem sonunda:
-- Her görsel için ayrı JSON çıktısı
-- Tüm görselleri kapsayan genel rapor JSON'ı (`genel_rapor_*.json`)
+Çoklu-model toplu işleminde görseller en fazla 50 öğelik chunk'lara ayrılır. Her chunk önce RT-DETR ile, ardından YOLO ile topluca taranır; modeller aşamalar arasında bellekten boşaltılır. WBF ve SAM 2 işlemlerinden sonra Florence-2 görselleri sırayla denetler. İşlem sonunda:
+- Her görsel için işaretli çıktı görseli
+- Tüm görsellerin ayrıntılarını kapsayan genel rapor JSON'ı (`genel_rapor_*.json`)
+
+Tek-model toplu işleminde ise görseller sırayla `hasar_tespiti_yap()` fonksiyonuna gönderilir; her görsel için ayrı sonuç JSON'ı ve işaretli görselin yanında genel rapor da oluşturulur.
 
 ### Çoklu Model Yapılandırması (`config.yaml`)
 
