@@ -1,10 +1,13 @@
 import gc
+import json
+import os
 import threading
 import numpy as np
 from pathlib import Path
 from colorama import Fore, Style, init
 
 init()
+os.environ.setdefault("USE_TF", "0")
 
 PROJE_KOKU = Path(__file__).parent.parent
 YAPILANDIRMA_YOLU = PROJE_KOKU / "config.yaml"
@@ -12,6 +15,7 @@ YAPILANDIRMA_YOLU = PROJE_KOKU / "config.yaml"
 _FLORENCE_MODEL = None
 _FLORENCE_PROCESSOR = None
 _FLORENCE_CIHAZ = None
+_FLORENCE_MODEL_KAYNAGI = None
 _KONTROL_EDILDI = False
 _MEVCUT = False
 _FLORENCE_KILIDI = threading.RLock()
@@ -55,69 +59,101 @@ def _cihaz_sec(otomatik_yedekleme_cpu=True):
     return "cpu"
 
 
-def _florence_modeli_yukle(model_adi, otomatik_yedekleme_cpu=True):
-    global _FLORENCE_MODEL, _FLORENCE_PROCESSOR, _FLORENCE_CIHAZ
+def _florence_model_yolunu_coz(model_adi):
+    model_yolu = Path(model_adi)
+    if model_yolu.is_absolute():
+        return str(model_yolu)
+    proje_model_yolu = PROJE_KOKU / model_yolu
+    if proje_model_yolu.exists():
+        return str(proje_model_yolu.resolve())
+    return model_adi
 
-    if _FLORENCE_MODEL is not None and _FLORENCE_PROCESSOR is not None:
+
+def _florence_model_kaynaklarini_bul(model_adi):
+    model_kaynagi = _florence_model_yolunu_coz(model_adi)
+    model_yolu = Path(model_kaynagi)
+    adapter_ayari_yolu = model_yolu / "adapter_config.json"
+    if not adapter_ayari_yolu.is_file():
+        return model_kaynagi, model_kaynagi, None
+
+    adapter_ayari = json.loads(adapter_ayari_yolu.read_text(encoding="utf-8"))
+    taban_model = adapter_ayari.get("base_model_name_or_path")
+    if not isinstance(taban_model, str) or not taban_model.strip():
+        raise ValueError(f"Florence LoRA taban modeli tanimsiz: {adapter_ayari_yolu}")
+    return model_kaynagi, taban_model.strip(), model_kaynagi
+
+
+def _florence_bilesenlerini_yukle(model_adi, torch):
+    from transformers import AutoProcessor, AutoModelForCausalLM
+
+    islemci_kaynagi, model_kaynagi, adapter_kaynagi = _florence_model_kaynaklarini_bul(model_adi)
+    islemci = AutoProcessor.from_pretrained(islemci_kaynagi, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_kaynagi,
+        trust_remote_code=True,
+        torch_dtype=torch.float32,
+    )
+    if adapter_kaynagi is not None:
+        from peft import PeftModel
+        model = PeftModel.from_pretrained(model, adapter_kaynagi, is_trainable=False)
+    model.eval()
+    return model, islemci, adapter_kaynagi
+
+
+def _florence_modeli_yukle(model_adi, otomatik_yedekleme_cpu=True):
+    global _FLORENCE_MODEL, _FLORENCE_PROCESSOR, _FLORENCE_CIHAZ, _FLORENCE_MODEL_KAYNAGI
+
+    cozulmus_model_kaynagi = _florence_model_yolunu_coz(model_adi)
+    if (
+        _FLORENCE_MODEL is not None
+        and _FLORENCE_PROCESSOR is not None
+        and _FLORENCE_MODEL_KAYNAGI == cozulmus_model_kaynagi
+    ):
         return _FLORENCE_MODEL, _FLORENCE_PROCESSOR, _FLORENCE_CIHAZ
 
     import torch
-    from transformers import AutoProcessor, AutoModelForCausalLM
 
     cihaz = _cihaz_sec(otomatik_yedekleme_cpu)
 
     try:
         if cihaz == "cuda":
             _FLORENCE_CIHAZ = "cuda"
-            islemci = AutoProcessor.from_pretrained(model_adi, trust_remote_code=True)
+            model, islemci, adapter_kaynagi = _florence_bilesenlerini_yukle(cozulmus_model_kaynagi, torch)
             print(f"{Fore.YELLOW}[!] Guvenlik: Florence-2 modeli uzaktan kod calistirabilir. Resmi Microsoft reposundan (microsoft/Florence-2) indirildiginden emin olun.{Style.RESET_ALL}")
-            model = AutoModelForCausalLM.from_pretrained(
-                model_adi,
-                trust_remote_code=True,
-                dtype=torch.float32,
-            ).to("cuda")
+            model = model.to("cuda")
         elif cihaz == "directml":
             _FLORENCE_CIHAZ = "directml"
             import torch_directml
             dml = torch_directml.device()
-            islemci = AutoProcessor.from_pretrained(model_adi, trust_remote_code=True)
-            model = AutoModelForCausalLM.from_pretrained(
-                model_adi,
-                trust_remote_code=True,
-                dtype=torch.float32,
-            ).to(dml)
+            model, islemci, adapter_kaynagi = _florence_bilesenlerini_yukle(cozulmus_model_kaynagi, torch)
+            model = model.to(dml)
         else:
             _FLORENCE_CIHAZ = "cpu"
-            islemci = AutoProcessor.from_pretrained(model_adi, trust_remote_code=True)
-            model = AutoModelForCausalLM.from_pretrained(
-                model_adi,
-                trust_remote_code=True,
-                dtype=torch.float32,
-            )
+            model, islemci, adapter_kaynagi = _florence_bilesenlerini_yukle(cozulmus_model_kaynagi, torch)
     except RuntimeError as hata:
         if "out of memory" in str(hata).lower() and otomatik_yedekleme_cpu:
             print(f"{Fore.YELLOW}[!] VRAM dolu, Florence-2 CPU'ya kaydiriliyor...{Style.RESET_ALL}")
             _FLORENCE_CIHAZ = "cpu"
-            islemci = AutoProcessor.from_pretrained(model_adi, trust_remote_code=True)
-            model = AutoModelForCausalLM.from_pretrained(
-                model_adi,
-                trust_remote_code=True,
-                dtype=torch.float32,
-            )
+            model, islemci, adapter_kaynagi = _florence_bilesenlerini_yukle(cozulmus_model_kaynagi, torch)
         else:
             raise
 
     _FLORENCE_MODEL = model
     _FLORENCE_PROCESSOR = islemci
+    _FLORENCE_MODEL_KAYNAGI = cozulmus_model_kaynagi
     if not hasattr(model.config, "forced_bos_token_id"):
         model.config.forced_bos_token_id = None
+    if adapter_kaynagi is not None:
+        print(f"    {Fore.WHITE}LoRA Adaptoru   : {Fore.GREEN}{adapter_kaynagi}{Style.RESET_ALL}")
     return model, islemci, _FLORENCE_CIHAZ
 
 
 def _florence_modelini_bosalt_kilitsiz():
-    global _FLORENCE_MODEL, _FLORENCE_PROCESSOR
+    global _FLORENCE_MODEL, _FLORENCE_PROCESSOR, _FLORENCE_CIHAZ, _FLORENCE_MODEL_KAYNAGI
     _FLORENCE_MODEL = None
     _FLORENCE_PROCESSOR = None
+    _FLORENCE_CIHAZ = None
+    _FLORENCE_MODEL_KAYNAGI = None
     gc.collect()
     try:
         import torch
@@ -213,6 +249,8 @@ def _hasar_siniflandir(metin, ekstra_siniflar=None):
         "glass": "Cam Kirigi",
         "rust": "Pas",
         "bird": "Kus Pisligi",
+        "kus": "Kus Pisligi",
+        "pisligi": "Kus Pisligi",
         "headlight": "Far Kirigi",
         "tire": "Patlak Lastik",
         "cizik": "Cizik",
@@ -240,6 +278,20 @@ def _hasar_siniflandir(metin, ekstra_siniflar=None):
     return "Bilinmeyen"
 
 
+def _dogrudan_hasar_siniflandir(metin):
+    normalize_metin = " ".join(str(metin).strip().casefold().replace("_", " ").split()).strip(".,:;")
+    sinif_eslesmeleri = {
+        "cizik": "Cizik",
+        "gocuk": "Gocuk",
+        "cam kirigi": "Cam Kirigi",
+        "pas": "Pas",
+        "kus pisligi": "Kus Pisligi",
+        "far kirigi": "Far Kirigi",
+        "patlak lastik": "Patlak Lastik",
+    }
+    return sinif_eslesmeleri.get(normalize_metin, "Bilinmeyen")
+
+
 def _denetle_kilitsiz(tespitler_havuzu, gorsel, yapilandirma=None):
     if not _florence_kullanilabilir_mi():
         print(f"{Fore.RED}[-] Florence-2 kutuphanesi yuklu degil. 'pip install transformers' calistirin.{Style.RESET_ALL}")
@@ -255,6 +307,7 @@ def _denetle_kilitsiz(tespitler_havuzu, gorsel, yapilandirma=None):
     model_adi = denetleyici_ayari.get("model", "microsoft/Florence-2-base")
     gorev = denetleyici_ayari.get("gorev", "<OD>")
     ekstra_siniflar = denetleyici_ayari.get("ekstra_siniflar", [])
+    dogrudan_sinif_ciktisi = denetleyici_ayari.get("dogrudan_sinif_ciktisi", False)
     otomatik_yedekleme = multi_model_ayari.get("otomatik_yedekleme_cpu", True)
 
     print(f"{Fore.BLUE}[*] Florence-2 Denetimi Yapiliyor...{Style.RESET_ALL}")
@@ -301,7 +354,11 @@ def _denetle_kilitsiz(tespitler_havuzu, gorsel, yapilandirma=None):
                     elif isinstance(bolum, str):
                         tespit_metni = bolum
 
-                dogrulanmis_sinif = _hasar_siniflandir(tespit_metni, ekstra_siniflar)
+                dogrulanmis_sinif = (
+                    _dogrudan_hasar_siniflandir(tespit_metni)
+                    if dogrudan_sinif_ciktisi
+                    else _hasar_siniflandir(tespit_metni, ekstra_siniflar)
+                )
                 orijinal_sinif = kutu_bilgisi.get("sinif_adi", "Bilinmeyen")
 
                 nihai_sinif = dogrulanmis_sinif if dogrulanmis_sinif != "Bilinmeyen" else orijinal_sinif
@@ -342,7 +399,11 @@ def _denetle_kilitsiz(tespitler_havuzu, gorsel, yapilandirma=None):
                 capraz_gorev_maske = CAPRAZ_SORGULAR.get(maske_sinif, gorev)
                 sonuc = _florence_sorgula(model, islemci, cihaz, crop, gorev=capraz_gorev_maske)
                 tespit_metni = sonuc.get(capraz_gorev_maske, "") if isinstance(sonuc, dict) else str(sonuc)
-                dogrulanmis_sinif = _hasar_siniflandir(tespit_metni, ekstra_siniflar)
+                dogrulanmis_sinif = (
+                    _dogrudan_hasar_siniflandir(tespit_metni)
+                    if dogrudan_sinif_ciktisi
+                    else _hasar_siniflandir(tespit_metni, ekstra_siniflar)
+                )
                 orijinal_maske_sinif = maske_bilgisi.get("sinif_adi", "Bilinmeyen")
 
                 nihai_maske_sinif = dogrulanmis_sinif if dogrulanmis_sinif != "Bilinmeyen" else orijinal_maske_sinif

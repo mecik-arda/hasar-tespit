@@ -20,7 +20,8 @@ openvino>=2024.0
 
 # --- Coklu Model (Multi-Model) Mimarisi ---
 # Florence-2 VLM (Vision-Language Model) ve CLIP Akıllı Yönlendirici (AI Router):
-transformers>=4.41.0
+transformers==4.49.0
+peft>=0.11.1,<1.0
 # PIL/Pillow: Görsel yükleme ve işleme (CLIP Router için gerekli):
 Pillow>=9.0.0
 einops>=0.8.0

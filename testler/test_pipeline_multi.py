@@ -1,5 +1,6 @@
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -94,6 +95,24 @@ class PipelineMultiModelTesti(unittest.TestCase):
         self.assertIn("model", denetleyici)
         self.assertIn("gorev", denetleyici)
 
+    def test_config_florence_lora_adaptorunu_kullanir(self):
+        denetleyici = self.yapilandirma["multi_model"]["denetleyici_ayarlari"]
+        model_yolu = denetleyici["model"]
+        self.assertEqual(model_yolu, "models/florence_hades_lora")
+        self.assertTrue(denetleyici["dogrudan_sinif_ciktisi"])
+        adapter_yolu = PROJE_KOKU / model_yolu
+        adapter_ayari = json.loads((adapter_yolu / "adapter_config.json").read_text(encoding="utf-8"))
+        self.assertTrue((adapter_yolu / "adapter_model.safetensors").is_file())
+        self.assertEqual(adapter_ayari["base_model_name_or_path"], "microsoft/Florence-2-base")
+        self.assertEqual(adapter_ayari["peft_type"], "LORA")
+
+    def test_florence_lora_kaynaklari_cozulur(self):
+        from src.inspector_florence import _florence_model_kaynaklarini_bul
+        islemci, taban_model, adapter = _florence_model_kaynaklarini_bul("models/florence_hades_lora")
+        self.assertEqual(Path(islemci), PROJE_KOKU / "models" / "florence_hades_lora")
+        self.assertEqual(taban_model, "microsoft/Florence-2-base")
+        self.assertEqual(Path(adapter), PROJE_KOKU / "models" / "florence_hades_lora")
+
     def test_config_agirliklar_gecerli(self):
         agirliklar = self.yapilandirma.get("multi_model", {}).get("agirliklar", {})
         self.assertIn("rtdetr", agirliklar)
@@ -137,6 +156,20 @@ class PipelineMultiModelTesti(unittest.TestCase):
         from src.inspector_florence import _hasar_siniflandir
         sonuc = _hasar_siniflandir("deep scratch on the hood")
         self.assertEqual(sonuc, "Cizik")
+
+    def test_inspector_florence_siniflandir_kus_pisligi(self):
+        from src.inspector_florence import _hasar_siniflandir
+        sonuc = _hasar_siniflandir("Kus Pisligi")
+        self.assertEqual(sonuc, "Kus Pisligi")
+
+    def test_inspector_florence_dogrudan_sinif_ciktisini_kabul_eder(self):
+        from src.inspector_florence import _dogrudan_hasar_siniflandir
+        self.assertEqual(_dogrudan_hasar_siniflandir("  Cam Kirigi  "), "Cam Kirigi")
+
+    def test_inspector_florence_aciklamayi_dogrudan_sinif_saymaz(self):
+        from src.inspector_florence import _dogrudan_hasar_siniflandir
+        sonuc = _dogrudan_hasar_siniflandir("The red car has a black tire in the background.")
+        self.assertEqual(sonuc, "Bilinmeyen")
 
     def test_inspector_florence_siniflandir_bilinmeyen(self):
         from src.inspector_florence import _hasar_siniflandir

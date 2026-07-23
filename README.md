@@ -18,15 +18,15 @@ Model eğitimleri Google Colab üzerinde NVIDIA A100 GPU (80GB VRAM) kullanılar
 |---|---|---|---|---|---|---|
 | **RT-DETR-x** | 69 Epoch | **%96.5 (0.965)** | **%95.3 (0.953)** | **%94.6 (0.946)** | **%86.6 (0.866)** | **Entegre Edildi (`rtdetr-v2-x.pt`) / Şampiyon** |
 | **YOLOv12x** | 130 Epoch | **%93.7 (0.937)** | **%94.6 (0.946)** | **%89.8 (0.898)** | **%82.2 (0.822)** | **Entegre Edildi (`yolov12x.pt`)** |
-| **Florence-2-base (VLM)** | 5 Epoch (Planlanan) | VQA / Sınıflandırma | - | - | - | Colab QLoRA İnce Ayar Hazır (`notebooks/florence2_colab_egitim.ipynb`) |
+| **Florence-2-base + HADES LoRA (VLM)** | 8 Epoch | VQA / Sınıflandırma | - | - | - | **Entegre Edildi (`models/florence_hades_lora`)** |
 
-> **Güncelleme Notu:** A100 GPU üzerinde 69 tur boyunca eğitilen ve **%96.5 mAP50** ile **%86.6 mAP50-95** rekor başarıya ulaşarak projenin en yüksek performanslı modeli olan `rtdetr-v2-x.pt` projeye entegre edilmiştir. Ayrıca **%93.7 mAP50** ile `yolov12x.pt` modeli çoklu model zincirinde yerini almıştır.
+> **Güncelleme Notu:** A100 GPU üzerinde 69 tur boyunca eğitilen ve **%96.5 mAP50** ile **%86.6 mAP50-95** rekor başarıya ulaşarak projenin en yüksek performanslı modeli olan `rtdetr-v2-x.pt` projeye entegre edilmiştir. Ayrıca **%93.7 mAP50** ile `yolov12x.pt` ve sekiz epoch eğitilen HADES Florence-2 LoRA adaptörü çoklu model zincirinde yerini almıştır.
 
-### Planlanan Florence-2 Fine-Tune İş Akışı
+### Florence-2 Fine-Tune İş Akışı
 
-Florence-2, YOLO etiket koordinatlarıyla ana görselden dinamik olarak kırpılan hasarlı bölgeyi ve `<DETAILED_CAPTION>` görevini birlikte alacak; hedef çıktı olarak projedeki yedi sınıftan birini (`Cizik`, `Gocuk`, `Cam Kirigi`, `Pas`, `Kus Pisligi`, `Far Kirigi`, `Patlak Lastik`) üretecek şekilde eğitilecektir. Böylece zero-shot kullanımda Türkçe hasar terimlerinin `Bilinmeyen` olarak kalması azaltılacaktır.
+Florence-2, YOLO etiket koordinatlarıyla ana görselden dinamik olarak kırpılan hasarlı bölgeyi ve `<DETAILED_CAPTION>` görevini birlikte alarak projedeki yedi sınıftan birini (`Cizik`, `Gocuk`, `Cam Kirigi`, `Pas`, `Kus Pisligi`, `Far Kirigi`, `Patlak Lastik`) üretecek şekilde sekiz epoch eğitilmiştir. Nihai PEFT adaptörü `models/florence_hades_lora` dizinine yerleştirilmiş ve `config.yaml` üzerinden denetleyiciye bağlanmıştır.
 
-[Florence-2 Colab notebook'u](notebooks/florence2_colab_egitim.ipynb) veri arşivini açma, YOLO koordinatlarını piksele çevirip hasar bölgelerini kırpma, veriyi yüzde 85 eğitim ve yüzde 15 doğrulama olarak ayırma, beş epoch eğitim ve çıktıları Google Drive'a kaydetme adımlarını otomatik yürütür. Ana model ağırlıkları dondurulup yalnızca `q_proj` ve `v_proj` dikkat katmanlarına LoRA adaptörleri eklenerek parametrelerin yaklaşık yüzde 1-2'si eğitilecektir. Oluşan küçük adaptör dosyası daha sonra `src/inspector_florence.py` modülüne bağlanarak Türkçe hasar sınıflandırmasında kullanılacaktır.
+[Florence-2 Colab notebook'u](notebooks/florence2_colab_egitim.ipynb) veri arşivini açma, YOLO koordinatlarını piksele çevirip hasar bölgelerini kırpma, veriyi yüzde 85 eğitim ve yüzde 15 doğrulama olarak ayırma ve çıktıları Google Drive'a kaydetme adımlarını otomatik yürütür. Ana model ağırlıkları dondurulmuş; `q_proj`, `k_proj`, `v_proj` ve `out_proj` dikkat katmanlarına `r=16`, `lora_alpha=32` değerleriyle LoRA uygulanmıştır. Çıkarım sırasında yerel işlemci dosyaları yüklenir, `microsoft/Florence-2-base` taban modeli açılır ve `adapter_model.safetensors` PEFT aracılığıyla taban modelin üzerine bağlanır. Taban model ilk kullanımda Hugging Face üzerinden indirilir ve sonraki kullanımlar için yerel önbellekte tutulur.
 
 ---
 
@@ -210,7 +210,7 @@ Görüntü kalitesini CLIP kullanmadan OpenCV ile analiz eder ve bozulma türün
 ### `src/inspector_florence.py`
 Microsoft Florence-2 Vision-Language Model (VLM) ile son denetim ve etiketleme yapan bağımsız modüldür:
 * `denetle()`: RAM havuzundaki kutu ve maske bölgelerini (crop) Florence-2'ye iletir. Model her bölgeye bakarak nihai sınıf etiketini (Örn: "Göçük", "Çizik") belirler. Auto-Fallback ile VRAM dolumunda CPU'ya kayar.
-* `_florence_modeli_yukle()`: Florence-2 modelini HuggingFace `transformers` üzerinden CUDA/DirectML/CPU backend'lerinden uygun olanla yükler.
+* `_florence_modeli_yukle()`: Yerel HADES LoRA adaptörünü Florence-2-base taban modeline PEFT ile bağlar ve modeli CUDA/DirectML/CPU backend'lerinden uygun olanla yükler.
 * `_florence_modelini_bosalt()`: Florence-2 modelini bellekten tamamen temizler.
 * `_hasar_siniflandir()`: Florence-2'nin metin çıktısını (Örn: "dent", "scratch") proje sınıf adlarına (Örn: "Gocuk", "Cizik") eşler.
 
@@ -705,8 +705,9 @@ multi_model:
     yolo: yolov12x.pt
     sam: sam2_s.pt
   denetleyici_ayarlari:
-    model: microsoft/Florence-2-base
+    model: models/florence_hades_lora
     gorev: <OD>
+    dogrudan_sinif_ciktisi: true
     ekstra_siniflar: ["lastik patlagi", "flat tire"]
   ram_optimizasyonu: true
   otomatik_yedekleme_cpu: true
@@ -735,6 +736,8 @@ multi_model:
       yolov12x: 1.0
 ```
 
+`dogrudan_sinif_ciktisi: true` yerel fine-tuned adaptör için güvenli etiket sözleşmesini etkinleştirir. Florence yalnızca yedi yapılandırılmış sınıftan birini doğrudan ürettiğinde dedektör etiketini değiştirir. Serbest açıklama çıktıları `florence_dogrulama` alanında saklanır fakat açıklamadaki bağlamsal kelimeler sınıfı yanlışlıkla ezemez.
+
 Dinamik WBF etkin olduğunda her sınıf için önce `model_metrikleri.<model>.siniflar` altındaki değer aranır; sınıfa özel metrik yoksa `genel` değeri kullanılır. En başarılı model `azami_agirlik` değerini alır, diğer modellerin ağırlıkları başarı oranı ve `duyarlilik` katsayısıyla otomatik hesaplanır. Metrik değerleri `0-1` veya yüzde biçiminde `0-100` aralığında girilebilir. Dinamik metrik bulunamadığında `wbf_sinif_agirliklari` güvenli geri dönüş olarak korunur. Her birleşmiş tespitte kullanılan değerler `wbf_model_agirliklari` alanıyla JSON çıktısına yazılır.
 
 `WBF Grid Search` benchmark'ı RT-DETR ve YOLO ham tespitlerini ayrı ayrı değerlendirerek genel ve sınıf bazlı mAP50 değerlerini otomatik üretir. Benchmark önerisi menüden onaylandığında IoU ve güven eşikleriyle birlikte bu metrikler de `config.yaml` içindeki dinamik ağırlıklandırma bölümüne kaydedilir.
@@ -744,16 +747,9 @@ Dinamik WBF etkin olduğunda her sınıf için önce `model_metrikleri.<model>.s
 Çoklu model mimarisi için ek bağımlılıklar gerekir:
 
 ```bash
-# Florence-2 VLM
-pip install transformers einops
-
-# PyTorch Görüntü Modelleri altyapısı
+pip install transformers peft einops
 pip install timm
-
-# SAM 2 (Meta Segment Anything 2)
 pip install sam-2
-
-# WBF (Weighted Boxes Fusion)
 pip install ensemble-boxes
 ```
 

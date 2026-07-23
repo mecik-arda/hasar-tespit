@@ -123,8 +123,9 @@ multi_model:
     yolo: yolov12x.pt
     sam: sam2_s.pt
   denetleyici_ayarlari:
-    model: microsoft/Florence-2-base
+    model: models/florence_hades_lora
     gorev: <OD>
+    dogrudan_sinif_ciktisi: true
     ekstra_siniflar:
     - lastik patlagi
     - flat tire

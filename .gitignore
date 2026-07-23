@@ -42,6 +42,7 @@ hasar-sonucu/
 *.tflite
 *.pb
 *.mlmodel
+models/florence_hades_lora/
 
 .vscode/
 .idea/

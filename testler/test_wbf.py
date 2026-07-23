@@ -7,12 +7,95 @@ from pathlib import Path
 PROJE_KOKU = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJE_KOKU))
 
-from src.pipeline import _wbf_kutu_birlestir, _ram_havuzu_olustur, _wbf_model_agirliklarini_hesapla
+from src.pipeline import (
+    _ram_havuzu_olustur,
+    _wbf_kutu_birlestir,
+    _wbf_model_agirliklarini_hesapla,
+    yapilandirma_yukle,
+)
 
 
 class WbfTesti(unittest.TestCase):
     def setUp(self):
         self.havuz = _ram_havuzu_olustur()
+
+    def _iki_model_tahminlerini_olustur(self, sinif_id, sinif_adi):
+        return {
+            "boxes": [
+                {
+                    "sinif_id": sinif_id,
+                    "sinif_adi": sinif_adi,
+                    "guven": 0.6,
+                    "kutucuk": {"x1": 100, "y1": 100, "x2": 500, "y2": 500},
+                    "kaynak_model": "rt-detr-v2-x",
+                },
+                {
+                    "sinif_id": sinif_id,
+                    "sinif_adi": sinif_adi,
+                    "guven": 0.9,
+                    "kutucuk": {"x1": 150, "y1": 150, "x2": 550, "y2": 550},
+                    "kaynak_model": "yolov12x",
+                },
+            ]
+        }
+
+    def _esit_agirlikli_birlestir(self, sinif_id, sinif_adi):
+        return _wbf_kutu_birlestir(
+            self._iki_model_tahminlerini_olustur(sinif_id, sinif_adi),
+            1000,
+            1000,
+            iou_esigi=0.55,
+            guven_esigi=0.25,
+            yapilandirma={"multi_model": {"wbf_dinamik_agirliklandirma": {"aktif": False}}},
+        )[0]
+
+    def _config_agirlikli_birlestir(self, sinif_id, sinif_adi):
+        return _wbf_kutu_birlestir(
+            self._iki_model_tahminlerini_olustur(sinif_id, sinif_adi),
+            1000,
+            1000,
+            iou_esigi=0.55,
+            guven_esigi=0.25,
+            yapilandirma=yapilandirma_yukle(),
+        )[0]
+
+    def test_config_sinif_bazli_wbf_agirlik_sozlesmesi(self):
+        agirliklar = yapilandirma_yukle()["multi_model"]["wbf_sinif_agirliklari"]
+        self.assertEqual(
+            agirliklar,
+            {
+                "Cizik": {"yolov12x": 2.0, "rt-detr-v2-x": 1.0},
+                "Gocuk": {"rt-detr-v2-x": 2.0, "yolov12x": 1.0},
+            },
+        )
+
+    def test_cizik_ikiye_bir_agirligi_skoru_ve_kutuyu_yoloya_yaklastirir(self):
+        esit_sonuc = self._esit_agirlikli_birlestir(0, "Cizik")
+        agirlikli_sonuc = self._config_agirlikli_birlestir(0, "Cizik")
+        self.assertEqual(esit_sonuc["guven"], 0.75)
+        self.assertEqual(esit_sonuc["kutucuk"], {"x1": 130, "y1": 130, "x2": 530, "y2": 530})
+        self.assertEqual(agirlikli_sonuc["guven"], 0.8)
+        self.assertEqual(agirlikli_sonuc["kutucuk"], {"x1": 137, "y1": 137, "x2": 537, "y2": 537})
+        self.assertEqual(
+            agirlikli_sonuc["wbf_model_agirliklari"],
+            {"rt-detr-v2-x": 1.0, "yolov12x": 2.0},
+        )
+        self.assertGreater(agirlikli_sonuc["guven"], esit_sonuc["guven"])
+        self.assertGreater(agirlikli_sonuc["kutucuk"]["x1"], esit_sonuc["kutucuk"]["x1"])
+
+    def test_gocuk_ikiye_bir_agirligi_skoru_ve_kutuyu_rtdetre_yaklastirir(self):
+        esit_sonuc = self._esit_agirlikli_birlestir(1, "Gocuk")
+        agirlikli_sonuc = self._config_agirlikli_birlestir(1, "Gocuk")
+        self.assertEqual(esit_sonuc["guven"], 0.75)
+        self.assertEqual(esit_sonuc["kutucuk"], {"x1": 130, "y1": 130, "x2": 530, "y2": 530})
+        self.assertEqual(agirlikli_sonuc["guven"], 0.7)
+        self.assertEqual(agirlikli_sonuc["kutucuk"], {"x1": 121, "y1": 121, "x2": 521, "y2": 521})
+        self.assertEqual(
+            agirlikli_sonuc["wbf_model_agirliklari"],
+            {"rt-detr-v2-x": 2.0, "yolov12x": 1.0},
+        )
+        self.assertLess(agirlikli_sonuc["guven"], esit_sonuc["guven"])
+        self.assertLess(agirlikli_sonuc["kutucuk"]["x1"], esit_sonuc["kutucuk"]["x1"])
 
     def test_bos_havuz_birlestirme(self):
         sonuc = _wbf_kutu_birlestir(self.havuz, 10000, 10000, iou_esigi=0.55, guven_esigi=0.25)

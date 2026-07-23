@@ -629,6 +629,15 @@ def _wbf_model_agirliklarini_hesapla(sinif_adi, model_isimleri, yapilandirma):
         return sabit_agirliklar
 
     model_metrikleri = dinamik_ayar.get("model_metrikleri", {})
+    sinifa_ozel_metrik_var = any(
+        isinstance(model_ayari, dict)
+        and isinstance(model_ayari.get("siniflar"), dict)
+        and sinif_adi in model_ayari["siniflar"]
+        for model_ayari in model_metrikleri.values()
+    )
+    if sabit_agirliklar is not None and not sinifa_ozel_metrik_var:
+        return sabit_agirliklar
+
     metrikler = {
         model_adi: _wbf_model_metrigini_al(model_metrikleri.get(model_adi), sinif_adi)
         for model_adi in model_isimleri

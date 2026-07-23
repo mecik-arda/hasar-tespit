@@ -359,20 +359,20 @@ Kapsam: Denetim #10 düzeltmelerinin bağımsız doğrulaması, `indir_dataset.p
 
 ## Özet İstatistikler
 
-| Kategori | #1 | #2 | #3 | Op. | #4 | #5 | #6 | #7 | #8 | #9 | #10 | #11 | #12 | #13 | #14 | #15 | Toplam |
-|----------|----|----|----|-----|----|----|----|----|----|----|-----|-----|-----|-----|-----|-----|--------|
-| Kritik | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 1 | **5** |
-| Yüksek | 4 | 2 | 1 | 2 | 3 | 1 | 2 | 2 | 2 | 2 | 2 | 1 | 0 | 0 | 0 | 2 | **26** |
-| Orta | 7 | 2 | 3 | 0 | 3 | 1 | 2 | 2 | 4 | 3 | 2 | 0 | 1 | 0 | 0 | 1 | **31** |
-| Düşük | 5 | 1 | 5 | 0 | 1 | 1 | 2 | 1 | 3 | 1 | 0 | 1 | 2 | 3 | 1 | 0 | **27** |
-| **Toplam** | **17** | **6** | **9** | **3** | **7** | **3** | **6** | **5** | **9** | **6** | **5** | **2** | **3** | **3** | **1** | **4** | **89** |
+| Kategori | #1 | #2 | #3 | Op. | #4 | #5 | #6 | #7 | #8 | #9 | #10 | #11 | #12 | #13 | #14 | #15 | #16 | #17 | Toplam |
+|----------|----|----|----|-----|----|----|----|----|----|----|-----|-----|-----|-----|-----|-----|-----|-----|--------|
+| Kritik | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | **5** |
+| Yüksek | 4 | 2 | 1 | 2 | 3 | 1 | 2 | 2 | 2 | 2 | 2 | 1 | 0 | 0 | 0 | 2 | 1 | 3 | **30** |
+| Orta | 7 | 2 | 3 | 0 | 3 | 1 | 2 | 2 | 4 | 3 | 2 | 0 | 1 | 0 | 0 | 1 | 1 | 1 | **33** |
+| Düşük | 5 | 1 | 5 | 0 | 1 | 1 | 2 | 1 | 3 | 1 | 0 | 1 | 2 | 3 | 1 | 0 | 0 | 0 | **27** |
+| **Toplam** | **17** | **6** | **9** | **3** | **7** | **3** | **6** | **5** | **9** | **6** | **5** | **2** | **3** | **3** | **1** | **4** | **2** | **4** | **95** |
 
 ### Düzeltme Türlerine Göre Dağılım
 
 | Tür | Adet |
 |-----|------|
 | Güvenlik açığı | 8 |
-| Hata (Bug) | 21 |
+| Hata (Bug) | 25 |
 | Kod kalitesi / DRY | 23 |
 | Performans | 6 |
 | Mimari / Tasarım | 6 |
@@ -382,6 +382,7 @@ Kapsam: Denetim #10 düzeltmelerinin bağımsız doğrulaması, `indir_dataset.p
 | Yan Etki (Side-effect) | 1 |
 | Kural İhlali (CLAUDE.md) | 4 |
 | Regresyon | 1 |
+| Test kapsamı | 1 |
 
 ### Test Sonuçları
 
@@ -402,6 +403,8 @@ Kapsam: Denetim #10 düzeltmelerinin bağımsız doğrulaması, `indir_dataset.p
 | 22.07.2026 | #13 sonrası | 147 birim test | Geçti |
 | 22.07.2026 | #14 sonrası | 147 birim test | Geçti |
 | 22.07.2026 | #15 sonrası | 18 VLM benchmark testi | Geçti |
+| 23.07.2026 | #16 sonrası | 48 WBF, çoklu model ve gelişmiş benchmark testi | Geçti (2.028s) |
+| 23.07.2026 | #17 sonrası | 196 birim ve entegrasyon testi | Geçti (59.118s) |
 
 ---
 
@@ -481,4 +484,52 @@ Kapsam: `src/advanced_benchmarks.py`, `src/inspector_florence.py`, `~/.cache/hug
 
 ---
 
-> **Not:** Tüm düzeltmeler `kod-denetleyicisi` SKILL.md v2.0.0 standardına göre yapılmıştır. Toplam 15 denetim oturumunda 91 hata tespit edilip düzeltilmiştir. Toplam 18 VLM benchmark birimi dahil testler başarıyla geçmektedir.
+## 23.07.2026 — Denetim #16 (Sınıf Bazlı WBF Ağırlıklandırma Doğrulaması)
+
+Kapsam: `config.yaml`, `src/pipeline.py`, `testler/test_wbf.py`
+
+### Yüksek
+
+| ID | Dosya | Satır | Kategori | Sorun | Düzeltme |
+|----|-------|-------|----------|-------|----------|
+| B092 | `src/pipeline.py` | 626-646 | Hata | `config.yaml` içinde Çizik için YOLOv12x:RT-DETR `2:1`, Göçük için RT-DETR:YOLOv12x `2:1` sabit sınıf ağırlıkları tanımlanmasına rağmen etkin dinamik WBF bölümündeki genel model metrikleri bu değerleri gölgeliyordu. Sonuç olarak iki sınıf da aynı dinamik ağırlıkları kullanıyor, yapılandırmadaki sınıfa özel tercih birleşmiş skora ve kutu koordinatına yansımıyordu | Açık bir sabit sınıf ağırlığı bulunduğunda yalnızca ilgili sınıfa ait dinamik metrik tanımlanmışsa dinamik hesaplamaya geçilecek şekilde öncelik sırası düzeltildi. Genel metrikler artık sınıfa özel `2:1` sözleşmesini geçersiz kılamıyor |
+
+### Orta
+
+| ID | Dosya | Satır | Kategori | Sorun | Düzeltme |
+|----|-------|-------|----------|-------|----------|
+| B093 | `testler/test_wbf.py` | 62-99 | Test Kapsamı | Gerçek `config.yaml` içindeki Çizik ve Göçük ağırlık sözleşmesini ve bu ağırlıkların birleşmiş güven skoru ile kutu koordinatına sayısal etkisini kanıtlayan deterministik regresyon testi yoktu | Yapılandırma sözleşmesini birebir doğrulayan test ile eşit ağırlık tabanına karşı iki deterministik füzyon testi eklendi. Çizik için skor `0.75` değerinden `0.80` değerine, kutu başlangıcı `130` değerinden `137` değerine; Göçük için skor `0.75` değerinden `0.70` değerine, kutu başlangıcı `130` değerinden `121` değerine kayarak beklenen model yönelimi kanıtlandı |
+
+### Doğrulama
+
+`python -m unittest testler.test_wbf testler.test_pipeline_multi testler.test_advanced_benchmarks` komutu çalıştırıldı. Toplam 48 testin tamamı 2.028 saniyede geçti. `git diff --check` herhangi bir biçimlendirme hatası bildirmedi.
+
+---
+
+## 23.07.2026 — Denetim #17 (Florence-2 LoRA Uçtan Uca Entegrasyonu)
+
+Kapsam: `models/florence_hades_lora`, `src/inspector_florence.py`, `config.yaml`, `requirements.txt`, `testler/test_pipeline_multi.py`
+
+### Yüksek
+
+| ID | Dosya | Satır | Kategori | Sorun | Düzeltme |
+|----|-------|-------|----------|-------|----------|
+| B094 | `src/inspector_florence.py` | 60-145 | Hata | Florence yükleyicisi yalnızca tam Hugging Face modeli açabiliyor, yerel PEFT LoRA klasörünü doğrudan model olarak yüklemeye çalıştığında `config.json` bulunamadığı için eğitim çıktısı kullanılamıyordu | Yerel yolu ve `adapter_config.json` sözleşmesini çözen yükleme akışı eklendi. `microsoft/Florence-2-base` taban modeli açılıp `PeftModel.from_pretrained` ile HADES LoRA adaptörü üzerine bağlandı; model kaynağına duyarlı önbellek ve bellek boşaltma eklendi |
+| B095 | `requirements.txt`, `src/inspector_florence.py` | 23-24, 84-100 | Hata (Uyumsuzluk) | Ortamdaki `transformers 5.13.1`, Florence-2 safetensors dosyasındaki bağlı dil modeli ağırlıklarını eksik yükleyerek 1024 tokenlık anlamsız çıktı üretiyordu. Ayrıca 4.49 serisinde `dtype` parametresi özel Florence sınıfıyla uyumsuzdu | Microsoft model deposundaki 4.49 uyumluluk düzeltmesiyle eşleşmesi için `transformers==4.49.0` sabitlendi, yükleme parametresi `torch_dtype=torch.float32` yapıldı ve `peft>=0.11.1,<1.0` bağımlılığı eklendi |
+| B097 | `src/inspector_florence.py`, `config.yaml` | 281-409, 128 | Hata | Serbest Florence açıklamasındaki bağlamsal bir sınıf kelimesi dedektör etiketini yanlışlıkla ezebiliyordu. Gerçek Çizik kırpımındaki arka plan için üretilen `tire` kelimesi sonucu `Patlak Lastik` sınıfına dönüştürdü | `dogrudan_sinif_ciktisi: true` sözleşmesi ve `_dogrudan_hasar_siniflandir` eklendi. Yerel fine-tuned model yalnızca yedi sınıftan birini doğrudan ürettiğinde etiketi değiştirebiliyor; serbest açıklama kanıt olarak saklanıp orijinal etiketi koruyor |
+
+### Orta
+
+| ID | Dosya | Satır | Kategori | Sorun | Düzeltme |
+|----|-------|-------|----------|-------|----------|
+| B096 | `src/inspector_florence.py` | 1-10 | Hata (Ortam Uyumsuzluğu) | PyTorch tabanlı Florence yüklemesi sırasında Transformers kullanılmayan TensorFlow backend'ini keşfediyor ve sistemdeki Protobuf gencode/runtime uyumsuzluğu nedeniyle model daha açılmadan çöküyordu | Florence modülü Transformers yüklenmeden önce `USE_TF=0` ayarlayarak yalnızca kullanılan PyTorch backend'ini etkinleştiriyor |
+
+### Uçtan Uca Doğrulama
+
+Final adaptörün SHA-256 değeri `A1136614DD5A207D8BC5A250358B20B65BD8B1196ADA3E52DABF1AC43A6750FD` olarak doğrulandı ve checkpoint-17224 içindeki adaptörle birebir eşleşti. LoRA açık/kapalı A/B çıkarımında aynı Çizik kırpımı için farklı açıklamalar üretilerek adaptörün etkin olduğu kanıtlandı. Gerçek `000001.jpg` görselindeki Patlak Lastik, Çizik ve Kuş Pisliği bölgeleri tek model yüklemesiyle CPU üzerinde denetlendi; üç etiket de güvenli sözleşmeyle korundu ve Florence açıklamaları `florence_dogrulama` alanına yazıldı.
+
+`python -m unittest discover -s testler -p "test_*.py"` komutu normal kullanıcı ortamında çalıştırıldı. Toplam 196 testin tamamı 59.118 saniyede geçti.
+
+---
+
+> **Not:** Tüm düzeltmeler `kod-denetleyicisi` SKILL.md v2.0.0 standardına göre yapılmıştır. Toplam 17 denetim oturumunda B001-B097 aralığındaki bulgular raporlanmıştır. Florence-2 LoRA uçtan uca doğrulaması ve toplam 196 test başarıyla geçmektedir.

@@ -74,7 +74,7 @@ class VeriAraclariTesti(unittest.TestCase):
     def test_readme_yedi_sinifi_belgeler(self):
         readme = (PROJE_KOKU / "README.md").read_text(encoding="utf-8")
         self.assertIn("Hasar sınıfının numarası (0-6)", readme)
-        fine_tune_bolumu = readme.split("### Planlanan Florence-2 Fine-Tune İş Akışı", 1)[1].split("---", 1)[0]
+        fine_tune_bolumu = readme.split("### Florence-2 Fine-Tune İş Akışı", 1)[1].split("---", 1)[0]
         for sinif_adi in BEKLENEN_SINIFLAR.values():
             self.assertIn(f"`{sinif_adi}`", fine_tune_bolumu)
 
